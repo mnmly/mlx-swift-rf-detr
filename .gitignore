@@ -20,3 +20,5 @@ DerivedData/
 
 # Local test files
 test_idx.swift
+run.sh
+.xcdd
