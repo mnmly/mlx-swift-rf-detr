@@ -18,6 +18,9 @@ DerivedData/
 *.a
 *.dylib
 
+# fixtures
+*.safetensors
+
 # Local test files
 test_idx.swift
 run.sh

@@ -49,25 +49,21 @@ public final class DepthwiseConvBlock: Module {
 
 /// MLP block with residual: LayerNorm → Linear(4×) → GELU → Linear → residual.
 ///
-/// Python stores weights as `layers.0` and `layers.2` (index 1 is a None placeholder
-/// for the activation). We mirror those keys for safetensors compatibility.
+/// Python uses `self.layers = [Linear, None, Linear]` (index 1 = None placeholder for GELU).
+/// We mirror with `[Linear?]` and `nil` at index 1 so safetensors key `layers.0.weight` /
+/// `layers.2.weight` match the array after `NestedDictionary.unflattened()`.
 public final class MLPBlock: Module {
     @ModuleInfo(key: "norm_in") public var normIn: LayerNorm
-    @ModuleInfo(key: "layers.0") public var fc1: Linear
-    @ModuleInfo(key: "layers.2") public var fc2: Linear
+    @ModuleInfo(key: "layers") public var layers: [Linear?]
 
     public init(dim: Int) {
         self._normIn = ModuleInfo(
             wrappedValue: LayerNorm(dimensions: dim),
             key: "norm_in"
         )
-        self._fc1 = ModuleInfo(
-            wrappedValue: Linear(dim, dim * 4),
-            key: "layers.0"
-        )
-        self._fc2 = ModuleInfo(
-            wrappedValue: Linear(dim * 4, dim),
-            key: "layers.2"
+        self._layers = ModuleInfo(
+            wrappedValue: [Linear(dim, dim * 4), nil, Linear(dim * 4, dim)],
+            key: "layers"
         )
         super.init()
     }
@@ -75,9 +71,9 @@ public final class MLPBlock: Module {
     public func callAsFunction(_ x: MLXArray) -> MLXArray {
         let residual = x
         var y = normIn(x)
-        y = fc1(y)
+        y = layers[0]!(y) // fc1
         y = gelu(y)
-        y = fc2(y)
+        y = layers[2]!(y) // fc2
         return residual + y
     }
 }
@@ -139,7 +135,7 @@ public final class SegmentationHead: Module {
     @ModuleInfo(key: "query_features_proj") public var queryFeaturesProj: Linear
 
     /// Mirrors the Python `self.bias = mx.zeros((1,))` learnable scalar.
-    public var bias: MLXArray
+    @ParameterInfo(key: "bias") public var bias: MLXArray
 
     public let downsampleRatio: Int
     public let interactionDim: Int
@@ -174,7 +170,7 @@ public final class SegmentationHead: Module {
             key: "query_features_proj"
         )
 
-        self.bias = MLXArray.zeros([1])
+        self._bias = ParameterInfo(wrappedValue: MLXArray.zeros([1]), key: "bias")
         super.init()
     }
 

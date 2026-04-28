@@ -21,6 +21,9 @@ public struct RFDETRConfig: Sendable {
     public var liteRefpointRefine: Bool
     public var layerNormEps: Float
 
+    /// RF-DETR Small: resolution=512, patch_size=16, feature_indices=[3,6,9,12]
+    public static let small = RFDETRConfig(numClasses: 90)
+
     public init(
         hiddenDim: Int = 256,
         decLayers: Int = 3,

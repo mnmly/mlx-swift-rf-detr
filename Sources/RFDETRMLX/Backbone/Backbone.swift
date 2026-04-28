@@ -136,10 +136,10 @@ public final class Block: Module {
 
     public init(dim: Int, numHeads: Int, numWindows: Int, mlpRatio: Float = 4.0) {
         self.numWindows = numWindows
-        self._norm1 = ModuleInfo(wrappedValue: LayerNorm(dimensions: dim), key: "norm1")
+        self._norm1 = ModuleInfo(wrappedValue: LayerNorm(dimensions: dim, eps: 1e-6), key: "norm1")
         self._attn = ModuleInfo(wrappedValue: Attention(dim: dim, numHeads: numHeads), key: "attn")
         self._ls1 = ModuleInfo(wrappedValue: LayerScale(dim: dim), key: "ls1")
-        self._norm2 = ModuleInfo(wrappedValue: LayerNorm(dimensions: dim), key: "norm2")
+        self._norm2 = ModuleInfo(wrappedValue: LayerNorm(dimensions: dim, eps: 1e-6), key: "norm2")
         self._mlp = ModuleInfo(
             wrappedValue: MLP(inFeatures: dim, hiddenFeatures: Int(Float(dim) * mlpRatio), outFeatures: dim),
             key: "mlp"
@@ -173,6 +173,7 @@ public final class Block: Module {
 public final class DINOv2Backbone: Module {
     @ModuleInfo(key: "patch_embed") public var patchEmbed: PatchEmbed
     @ParameterInfo(key: "cls_token") public var clsToken: MLXArray
+    @ParameterInfo(key: "register_tokens") public var registerTokens: MLXArray
     @ParameterInfo(key: "pos_embed") public var posEmbed: MLXArray
     @ModuleInfo(key: "blocks") public var blocks: [Block]
     @ModuleInfo(key: "norm") public var norm: LayerNorm
@@ -183,6 +184,7 @@ public final class DINOv2Backbone: Module {
     public let depth: Int
     public let featureIndices: [Int]
     public let fullAttnLayers: Set<Int>
+    public let numRegisterTokens: Int
 
     public init(
         imgSize: Int = 640,
@@ -192,12 +194,14 @@ public final class DINOv2Backbone: Module {
         numHeads: Int = 6,
         numWindows: Int = 2,
         featureIndices: [Int]? = nil,
-        mlpRatio: Float = 4.0
+        mlpRatio: Float = 4.0,
+        numRegisterTokens: Int = 0
     ) {
         self.patchSize = patchSize
         self.embedDim = embedDim
         self.numWindows = numWindows
         self.depth = depth
+        self.numRegisterTokens = numRegisterTokens
 
         let fi = featureIndices ?? [2, 5, 8, 11]
         self.featureIndices = fi
@@ -211,6 +215,10 @@ public final class DINOv2Backbone: Module {
         let numPatches = pe.numPatches
 
         self._clsToken = ParameterInfo(wrappedValue: MLXArray.zeros([1, 1, embedDim]), key: "cls_token")
+        self._registerTokens = ParameterInfo(
+            wrappedValue: MLXArray.zeros([1, max(numRegisterTokens, 1), embedDim]),
+            key: "register_tokens"
+        )
         self._posEmbed = ParameterInfo(
             wrappedValue: MLXArray.zeros([1, 1 + numPatches, embedDim]),
             key: "pos_embed"
@@ -220,12 +228,12 @@ public final class DINOv2Backbone: Module {
             Block(dim: embedDim, numHeads: numHeads, numWindows: numWindows, mlpRatio: mlpRatio)
         }
         self._blocks = ModuleInfo(wrappedValue: built, key: "blocks")
-        self._norm = ModuleInfo(wrappedValue: LayerNorm(dimensions: embedDim), key: "norm")
+        self._norm = ModuleInfo(wrappedValue: LayerNorm(dimensions: embedDim, eps: 1e-6), key: "norm")
         super.init()
     }
 
     /// (N, H*W, C) → (N*nW^2, win_h*win_w, C).
-    private func windowPartition(_ patches: MLXArray, H: Int, W: Int, N: Int) -> MLXArray {
+    func windowPartition(_ patches: MLXArray, H: Int, W: Int, N: Int) -> MLXArray {
         let nW = numWindows
         let C = patches.dim(2)
         let winH = H / nW
@@ -270,9 +278,23 @@ public final class DINOv2Backbone: Module {
         let winCls = MLX.concatenated(Array(repeating: winClsBase, count: nW2), axis: 0)
         tokens = MLX.concatenated([winCls, winPatches], axis: 1)
 
+        // Insert register tokens between CLS and patches: [CLS, REG×R, patches].
+        // Registers are added AFTER windowing (per Python: same registers replicated
+        // across all nW² windows via expand on the batch axis).
+        let nR = numRegisterTokens
+        if nR > 0 {
+            let cls = tokens[0..., 0..<1, 0...]
+            let rest = tokens[0..., 1..., 0...]
+            let regs = MLX.broadcast(registerTokens, to: [N * nW2, nR, embedDim])
+            tokens = MLX.concatenated([cls, regs, rest], axis: 1)
+        }
+
         var features: [MLXArray] = []
         features.reserveCapacity(featureIndices.count)
         let featureSet = Set(featureIndices)
+
+        // Patches start at index (1 + nR): skip CLS and registers when extracting.
+        let patchStart = 1 + nR
 
         for (i, block) in blocks.enumerated() {
             let runFull = fullAttnLayers.contains(i)
@@ -280,7 +302,7 @@ public final class DINOv2Backbone: Module {
 
             if featureSet.contains(i) {
                 let normed = norm(tokens)
-                let patchOnly = normed[0..., 1..., 0...]
+                let patchOnly = normed[0..., patchStart..., 0...]
                 features.append(unwindow(patchOnly, H: H, W: W, N: N))
             }
         }
