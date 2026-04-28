@@ -1,0 +1,22 @@
+# Xcode / Swift
+.build/
+.swiftpm/
+*.xcodeproj/
+xcuserdata/
+*.xcworkspace/
+DerivedData/
+*.playground/playground.xcworkspace
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Build artifacts
+*.o
+*.d
+*.a
+*.dylib
+
+# Local test files
+test_idx.swift
