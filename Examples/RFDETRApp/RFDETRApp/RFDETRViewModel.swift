@@ -1,7 +1,7 @@
 import SwiftUI
 import CoreGraphics
 import MLX
-import RFDETRMLX
+import MLXRFDETR
 
 // Local Sendable conformances so we can hop between actors. The MLX-backed
 // values are read-only after model load; processor is a value type with

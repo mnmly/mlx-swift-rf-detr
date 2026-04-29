@@ -1,6 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
-import RFDETRMLX
+import MLXRFDETR
 
 struct ContentView: View {
     @Bindable var model: RFDETRViewModel

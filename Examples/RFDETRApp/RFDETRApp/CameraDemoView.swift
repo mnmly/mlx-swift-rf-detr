@@ -1,7 +1,7 @@
 import SwiftUI
 import AVFoundation
 import CoreGraphics
-import RFDETRMLX
+import MLXRFDETR
 
 struct CameraDemoView: View {
     let model: RFDETRViewModel

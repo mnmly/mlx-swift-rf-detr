@@ -65,7 +65,7 @@ public func loadAndPreprocess(url: URL, processor: RFDETRProcessor) throws -> (p
     guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
           let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil)
     else {
-        throw NSError(domain: "RFDETRMLX", code: 1, userInfo: [NSLocalizedDescriptionKey: "Cannot load image at \(url.path)"])
+        throw NSError(domain: "MLXRFDETR", code: 1, userInfo: [NSLocalizedDescriptionKey: "Cannot load image at \(url.path)"])
     }
 
     let origW = cgImage.width
@@ -86,7 +86,7 @@ public func loadAndPreprocess(url: URL, processor: RFDETRProcessor) throws -> (p
     ctx?.draw(cgImage, in: CGRect(x: 0, y: 0, width: res, height: res))
 
     guard let context = ctx, let data = context.data else {
-        throw NSError(domain: "RFDETRMLX", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to resize image"])
+        throw NSError(domain: "MLXRFDETR", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to resize image"])
     }
 
     // Copy RGBA → RGB float (normalize to [0, 1])

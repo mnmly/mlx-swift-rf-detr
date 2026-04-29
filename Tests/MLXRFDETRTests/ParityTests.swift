@@ -3,14 +3,14 @@ import MLX
 import MLXNN
 import XCTest
 
-@testable import RFDETRMLX
+@testable import MLXRFDETR
 
 final class ParityTests: XCTestCase {
 
     var fixtureDir: URL {
         let thisFile = URL(fileURLWithPath: #filePath)
         return thisFile
-            .deletingLastPathComponent()   // RFDETRMLXTests/
+            .deletingLastPathComponent()   // MLXRFDETRTests/
             .deletingLastPathComponent()   // Tests/
             .appendingPathComponent("fixtures")
     }

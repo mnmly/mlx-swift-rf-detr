@@ -13,14 +13,14 @@ let package = Package(
         .visionOS(.v1),
     ],
     products: [
-        .library(name: "RFDETRMLX", targets: ["RFDETRMLX"]),
+        .library(name: "MLXRFDETR", targets: ["MLXRFDETR"]),
     ],
     dependencies: [
         .package(url: "https://github.com/ml-explore/mlx-swift", .upToNextMinor(from: "0.31.3")),
     ],
     targets: [
         .target(
-            name: "RFDETRMLX",
+            name: "MLXRFDETR",
             dependencies: [
                 .product(name: "MLX", package: "mlx-swift"),
                 .product(name: "MLXNN", package: "mlx-swift"),
@@ -29,8 +29,8 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "RFDETRMLXTests",
-            dependencies: ["RFDETRMLX"]
+            name: "MLXRFDETRTests",
+            dependencies: ["MLXRFDETR"]
         ),
     ]
 )

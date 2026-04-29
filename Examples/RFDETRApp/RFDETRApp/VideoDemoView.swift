@@ -1,7 +1,7 @@
 import SwiftUI
 import CoreGraphics
 import UniformTypeIdentifiers
-import RFDETRMLX
+import MLXRFDETR
 
 struct VideoDemoView: View {
     let model: RFDETRViewModel

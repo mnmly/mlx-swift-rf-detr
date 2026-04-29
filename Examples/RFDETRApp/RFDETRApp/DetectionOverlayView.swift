@@ -2,7 +2,7 @@ import SwiftUI
 import Foundation
 import CoreGraphics
 import AppKit
-import RFDETRMLX
+import MLXRFDETR
 
 /// Renders an image with RF-DETR detection boxes (and optional segmentation masks).
 struct DetectionOverlayView: View {

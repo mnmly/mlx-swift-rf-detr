@@ -2,9 +2,9 @@ import MLX
 import MLXNN
 import XCTest
 
-@testable import RFDETRMLX
+@testable import MLXRFDETR
 
-final class RFDETRMLXTests: XCTestCase {
+final class MLXRFDETRTests: XCTestCase {
 
     func testBackboneShapes() {
         let bb = DINOv2Backbone(
