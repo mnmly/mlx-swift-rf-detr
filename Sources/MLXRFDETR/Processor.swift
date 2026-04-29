@@ -52,56 +52,51 @@ public struct RFDETRProcessor {
 import CoreGraphics
 import ImageIO
 
-/// Load an image from a file URL, resize, and normalize for RF-DETR.
-///
-/// This uses CoreGraphics (available on macOS/iOS). For other platforms,
-/// use the `normalize(_:)` method directly with a pre-loaded MLXArray.
-///
-/// - Parameters:
-///   - url: path to image file (PNG, JPEG, etc.)
-///   - processor: configured processor (resolution, mean, std)
-/// - Returns: `(1, H, W, 3)` normalized float32 batch and the original `(H, W)` size
-public func loadAndPreprocess(url: URL, processor: RFDETRProcessor) throws -> (pixelValues: MLXArray, originalSize: (Int, Int)) {
-    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-          let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil)
-    else {
-        throw NSError(domain: "MLXRFDETR", code: 1, userInfo: [NSLocalizedDescriptionKey: "Cannot load image at \(url.path)"])
-    }
-
+/// Resize a CGImage and normalize for RF-DETR.
+public func loadAndPreprocess(cgImage: CGImage, processor: RFDETRProcessor) throws -> (pixelValues: MLXArray, originalSize: (Int, Int)) {
     let origW = cgImage.width
     let origH = cgImage.height
     let res = processor.resolution
 
-    // Resize using CoreGraphics
     let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
-    let ctx = CGContext(
+    guard let ctx = CGContext(
         data: nil,
         width: res, height: res,
         bitsPerComponent: 8,
         bytesPerRow: res * 4,
         space: colorSpace,
         bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
-    )
-    ctx?.interpolationQuality = .default  // bilinear
-    ctx?.draw(cgImage, in: CGRect(x: 0, y: 0, width: res, height: res))
+    ) else {
+        throw NSError(domain: "MLXRFDETR", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to create resize context"])
+    }
+    ctx.interpolationQuality = .default
+    ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: res, height: res))
 
-    guard let context = ctx, let data = context.data else {
+    guard let data = ctx.data else {
         throw NSError(domain: "MLXRFDETR", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to resize image"])
     }
 
-    // Copy RGBA → RGB float (normalize to [0, 1])
     var rgb = [Float](repeating: 0, count: res * res * 3)
     let buf = data.bindMemory(to: UInt8.self, capacity: res * res * 4)
     for i in 0..<(res * res) {
-        rgb[i * 3] = Float(buf[i * 4]) / 255.0       // R
-        rgb[i * 3 + 1] = Float(buf[i * 4 + 1]) / 255.0 // G
-        rgb[i * 3 + 2] = Float(buf[i * 4 + 2]) / 255.0 // B
+        rgb[i * 3]     = Float(buf[i * 4])     / 255.0
+        rgb[i * 3 + 1] = Float(buf[i * 4 + 1]) / 255.0
+        rgb[i * 3 + 2] = Float(buf[i * 4 + 2]) / 255.0
     }
 
     let tensor = MLXArray(rgb, [res, res, 3])
     let normalized = processor.normalize(tensor)
-
     return (normalized, (origH, origW))
+}
+
+/// Load an image from a file URL, resize, and normalize for RF-DETR.
+public func loadAndPreprocess(url: URL, processor: RFDETRProcessor) throws -> (pixelValues: MLXArray, originalSize: (Int, Int)) {
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+          let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil)
+    else {
+        throw NSError(domain: "MLXRFDETR", code: 1, userInfo: [NSLocalizedDescriptionKey: "Cannot load image at \(url.path)"])
+    }
+    return try loadAndPreprocess(cgImage: cgImage, processor: processor)
 }
 
 #endif

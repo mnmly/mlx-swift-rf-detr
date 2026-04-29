@@ -70,18 +70,17 @@ public final class RFDETRModel: Module {
         // 1. Backbone: extract multi-scale features
         let features = backbone(pixelValues)
 
-        // 2. Projector: merge features into single scale
-        let memorySpatial = projector(features)  // (B, h, w, D)
-        let spatH = memorySpatial.dim(1)
-        let spatW = memorySpatial.dim(2)
-        let B = memorySpatial.dim(0)
-        let D = memorySpatial.dim(-1)
-        let memoryFlat = memorySpatial.reshaped(B, spatH * spatW, D)
+        // 2. Projector: produce one feature map per scale
+        let memories = projector(features)  // [(B, hi, wi, D)]
+        let spatialShapes = memories.map { ($0.dim(1), $0.dim(2)) }
+        let B = memories[0].dim(0)
+        let D = memories[0].dim(-1)
+        let memoryFlat = concatenated(memories.map { $0.reshaped([$0.dim(0), -1, $0.dim(-1)]) }, axis: 1)
 
         // 3. Transformer: two-stage selection + decoder
         let (hs, refPoints) = transformer(
             memoryFlat,
-            spatialShape: (spatH, spatW),
+            spatialShapes: spatialShapes,
             queryFeat: queryFeat,
             refpointEmbed: refpointEmbed,
             bboxEmbed: bboxEmbed
@@ -109,7 +108,7 @@ public final class RFDETRModel: Module {
 
         // 5. Optional segmentation
         if let segHead = segmentationHead {
-            let predMasks = segHead(memorySpatial, queryFeatures: hs, imageSize: (imageH, imageW))
+            let predMasks = segHead(memories[0], queryFeatures: hs, imageSize: (imageH, imageW))
             result["pred_masks"] = predMasks
         }
 

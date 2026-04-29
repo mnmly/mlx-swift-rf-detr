@@ -211,14 +211,13 @@ public func postProcess(
         return [boxesRaw[b], boxesRaw[b + 1], boxesRaw[b + 2], boxesRaw[b + 3]]
     }
 
-    // Filter by threshold
+    // Filter by threshold (apply unconditionally — an empty result is the
+    // correct outcome when nothing crosses the threshold).
     let keep = selectedScores.enumerated().filter { $0.1 > scoreThreshold }
-    if !keep.isEmpty {
-        selectedScores = keep.map { $0.1 }
-        selectedClasses = keep.map { selectedClasses[$0.0] }
-        selectedBoxes = keep.map { selectedBoxes[$0.0] }
-        topkIdx = keep.map { topkIdx[$0.0] }
-    }
+    selectedScores = keep.map { $0.1 }
+    selectedClasses = keep.map { selectedClasses[$0.0] }
+    selectedBoxes = keep.map { selectedBoxes[$0.0] }
+    topkIdx = keep.map { topkIdx[$0.0] }
 
     // cxcywh → xyxy
     selectedBoxes = boxCxcywhToXyxy(selectedBoxes)
@@ -264,7 +263,6 @@ public func postProcess(
         eval(predMasks)
         let mDim1 = predMasks.dim(2)
         let mDim2 = predMasks.dim(3)
-        let stride = predMasks.dim(1) * mDim1 * mDim2
         let flatMasks: [Float] = predMasks.asArray(Float.self)
         var masks = [Array2D<Float>]()
         for idx in topkIdx {

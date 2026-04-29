@@ -52,15 +52,14 @@ public final class Transformer: Module {
 
     public func twoStageSelect(
         _ memory: MLXArray,
-        spatialShape: (Int, Int),
+        spatialShapes: [(Int, Int)],
         groupIdx: Int = 0
     ) -> (MLXArray, MLXArray) {
         let B = memory.dim(0)
         let nq = config.numQueries
-        let H = spatialShape.0; let W = spatialShape.1
 
-        // Generate grid proposals in [0,1] coordinate space
-        let gridProposals = genEncoderOutputProposals(H: H, W: W) // (HW, 4)
+        // Generate grid proposals in [0,1] coordinate space (multi-level)
+        let gridProposals = genEncoderOutputProposals(spatialShapes: spatialShapes) // (sum(Hi*Wi), 4)
 
         // Project encoder features
         let output = encOutputNorm[groupIdx](encOutput[groupIdx](memory))
@@ -111,7 +110,7 @@ public final class Transformer: Module {
 
     public func callAsFunction(
         _ memory: MLXArray,
-        spatialShape: (Int, Int),
+        spatialShapes: [(Int, Int)],
         queryFeat: MLXArray,
         refpointEmbed: MLXArray,
         bboxEmbed: DecoderMLP
@@ -125,7 +124,7 @@ public final class Transformer: Module {
         let rp = refpointEmbed[0..<nq, 0...] // (nq, 4)
 
         // Two-stage query selection
-        let (refpointEmbedTS, _) = twoStageSelect(memory, spatialShape: spatialShape, groupIdx: 0)
+        let (refpointEmbedTS, _) = twoStageSelect(memory, spatialShapes: spatialShapes, groupIdx: 0)
 
         // Combine learnable refpoint with two-stage proposals
         let combinedRefpoints: MLXArray
@@ -143,7 +142,7 @@ public final class Transformer: Module {
         // tgt is JUST the query features (not enriched with encoder features)
         let tgt = broadcast(qf.expandedDimensions(axis: 0), to: [B, nq, d])
 
-        let (hs, refUnsig) = decoder(tgt, memory: memory, referencePointsUnsigmoid: combinedRefpoints, spatialShape: spatialShape, bboxEmbed: bboxEmbed)
+        let (hs, refUnsig) = decoder(tgt, memory: memory, referencePointsUnsigmoid: combinedRefpoints, spatialShapes: spatialShapes, bboxEmbed: bboxEmbed)
 
         return (hs, refUnsig)
     }

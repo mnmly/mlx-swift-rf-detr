@@ -57,25 +57,24 @@ public final class MSDeformableAttention: Module {
         _ query: MLXArray,
         referencePoints: MLXArray,
         value: MLXArray,
-        spatialShape: (Int, Int)
+        spatialShapes: [(Int, Int)]
     ) -> MLXArray {
         let B = query.dim(0); let Q = query.dim(1)
-        let H = spatialShape.0; let W = spatialShape.1
 
-        // Project values: (B, HW, D)
-        let vProj = valueProj(value)
+        // Project values: (B, S, nHeads, headDim) where S = sum of Hi*Wi
+        let vProj = valueProj(value).reshaped([B, -1, nHeads, headDim])
 
         // Compute sampling offsets: (B, Q, nHeads, nLevels, nPoints, 2)
         var offsets = samplingOffsets(query)
         offsets = offsets.reshaped([B, Q, nHeads, nLevels, nPoints, 2])
 
-        // Compute attention weights: (B, Q, nHeads, nLevels * nPoints)
+        // Compute attention weights: (B, Q, nHeads, nLevels, nPoints)
         var attnWeights_ = attentionWeights(query)
         attnWeights_ = attnWeights_.reshaped([B, Q, nHeads, nLevels * nPoints])
         attnWeights_ = softmax(attnWeights_, axis: -1)
         let attnWeights = attnWeights_.reshaped([B, Q, nHeads, nLevels, nPoints])
 
-        // Compute sampling locations
+        // Compute sampling locations: (B, Q, nHeads, nLevels, nPoints, 2)
         let samplingLocations: MLXArray
         if referencePoints.ndim == 3 {
             // (B, Q, 2) — broadcast over heads, levels, points
@@ -83,12 +82,14 @@ public final class MSDeformableAttention: Module {
                 .expandedDimensions(axis: 2)
                 .expandedDimensions(axis: 2)
                 .expandedDimensions(axis: 2) // (B, Q, 1, 1, 1, 2)
-            let offsetNormalizer = MLXArray([Float(W), Float(H)]).reshaped([1, 1, 1, 1, 1, 2])
+            let (H0, W0) = spatialShapes[0]
+            let offsetNormalizer = MLXArray([Float(W0), Float(H0)]).reshaped([1, 1, 1, 1, 1, 2])
             samplingLocations = ref + offsets / offsetNormalizer
         } else if referencePoints.dim(-1) == 2 {
             // (B, Q, nLevels, 2)
             let ref = referencePoints[0..., 0..., .newAxis, 0..., .newAxis, 0...] // (B, Q, 1, nLevels, 1, 2)
-            let offsetNormalizer = MLXArray([Float(W), Float(H)]).reshaped([1, 1, 1, 1, 1, 2])
+            let (H0, W0) = spatialShapes[0]
+            let offsetNormalizer = MLXArray([Float(W0), Float(H0)]).reshaped([1, 1, 1, 1, 1, 2])
             samplingLocations = ref + offsets / offsetNormalizer
         } else if referencePoints.dim(-1) == 4 {
             // (B, Q, nLevels, 4) — bbox_reparam mode
@@ -99,31 +100,41 @@ public final class MSDeformableAttention: Module {
             fatalError("referencePoints last dim must be 2 or 4")
         }
 
-        // Reshape value for grid_sample: (B*nHeads, H, W, headDim)
-        let valueReshaped = vProj.reshaped([B, H, W, nHeads, headDim])
-        let valueTransposed = valueReshaped.transposed(0, 3, 1, 2, 4)
-        let valueSpatial = valueTransposed.reshaped([B * nHeads, H, W, headDim])
+        // Accumulate weighted samples across all levels
+        var output: MLXArray? = nil
+        var offset = 0
+        for (lvl, (H, W)) in spatialShapes.enumerated() {
+            let sz = H * W
+            // Slice value for this level: (B, H*W, nHeads, headDim)
+            let vLvl = vProj[0..., offset..<(offset + sz), 0..., 0...]
+            // Reshape for grid_sample: (B*nHeads, H, W, headDim)
+            let vSpatial = vLvl.reshaped([B, H, W, nHeads, headDim])
+                                .transposed(0, 3, 1, 2, 4)
+                                .reshaped([B * nHeads, H, W, headDim])
 
-        // Squeeze nLevels dim (assuming nLevels == 1)
-        let sampLoc = samplingLocations[0..., 0..., 0..., 0, 0..., 0...] // (B, Q, nHeads, nPoints, 2)
+            // Sampling locations for this level: (B, Q, nHeads, nPoints, 2)
+            let sampLoc = samplingLocations[0..., 0..., 0..., lvl, 0..., 0...]
+            // Convert [0,1] → [-1,1] and reshape for grid_sample: (B*nHeads, Q, nPoints, 2)
+            let gridCoords = (sampLoc * 2 - 1).transposed(0, 2, 1, 3, 4).reshaped([B * nHeads, Q, nPoints, 2])
 
-        // Convert to grid_sample format: [0,1] -> [-1,1]
-        var gridCoords = sampLoc * 2 - 1
+            // Grid sample: (B*nHeads, Q, nPoints, headDim)
+            let sampled = gridSample([vSpatial, gridCoords])[0]
+            let sampledR = sampled.reshaped([B, nHeads, Q, nPoints, headDim])
 
-        // Reshape for grid_sample: (B*nHeads, Q, nPoints, 2)
-        gridCoords = gridCoords.transposed(0, 2, 1, 3, 4).reshaped([B * nHeads, Q, nPoints, 2])
+            // Attention weights for this level: (B, Q, nHeads, nPoints) → (B, nHeads, Q, nPoints, 1)
+            let w = attnWeights[0..., 0..., 0..., lvl, 0...]
+                        .transposed(0, 2, 1, 3)
+                        .expandedDimensions(axis: -1)
 
-        // Grid sample
-        let sampled = gridSample([valueSpatial, gridCoords])[0] // (B*nHeads, Q, nPoints, headDim)
+            // Weighted sum over points: (B, nHeads, Q, headDim)
+            let contrib = (sampledR * w).sum(axis: 3)
+            output = output.map { $0 + contrib } ?? contrib
 
-        // Apply attention weights
-        let sampledR = sampled.reshaped([B, nHeads, Q, nPoints, headDim])
-        let weights = attnWeights[0..., 0..., 0..., 0, 0...].transposed(0, 2, 1, 3).expandedDimensions(axis: -1) // (B, nHeads, Q, nPoints, 1)
+            offset += sz
+        }
 
-        // Weighted sum over points
-        var output = (sampledR * weights).sum(axis: 3) // (B, nHeads, Q, headDim)
-        output = output.transposed(0, 2, 1, 3).reshaped([B, Q, dModel])
-
-        return outputProj(output)
+        // Reshape to (B, Q, dModel)
+        let out = output!.transposed(0, 2, 1, 3).reshaped([B, Q, dModel])
+        return outputProj(out)
     }
 }

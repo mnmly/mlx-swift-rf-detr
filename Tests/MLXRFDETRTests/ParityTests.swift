@@ -30,7 +30,8 @@ final class ParityTests: XCTestCase {
             depth: 12, numHeads: 6, numWindows: 2,
             featureIndices: [2, 5, 8, 11]
         )
-        let proj = MultiScaleProjector(inChannels: 1536, hiddenDim: 256)
+        // Small: projector_scale=["P4"], 4 features @ 384 channels → single P4 scale
+        let proj = MultiScaleProjector(scaleFactors: [1.0], inChannelsList: [384, 384, 384, 384], hiddenDim: 256)
         let model = RFDETRModel(config: .small, backbone: bb, projector: proj)
         try loadWeights(url: weightsURL, into: model, dtype: .float32)
 
@@ -246,7 +247,8 @@ final class ParityTests: XCTestCase {
         let intermediates = try loadIntermediates()
 
         let features = model.backbone(pixelValues)
-        let memSpatial = model.projector(features)  // (B, h, w, D)
+        let memories = model.projector(features)  // [(B, h, w, D)]
+        let memSpatial = memories[0]
         eval(memSpatial)
 
         guard let expected = intermediates["fs_0"] else {
@@ -263,16 +265,15 @@ final class ParityTests: XCTestCase {
         let intermediates = try loadIntermediates()
 
         let features = model.backbone(pixelValues)
-        let memSpatial = model.projector(features)
-        let B = memSpatial.dim(0)
-        let h = memSpatial.dim(1)
-        let w = memSpatial.dim(2)
-        let D = memSpatial.dim(-1)
-        let memFlat = memSpatial.reshaped(B, h * w, D)
+        let memories = model.projector(features)
+        let spatialShapes = memories.map { ($0.dim(1), $0.dim(2)) }
+        let B = memories[0].dim(0)
+        let D = memories[0].dim(-1)
+        let memFlat = concatenated(memories.map { $0.reshaped([$0.dim(0), -1, $0.dim(-1)]) }, axis: 1)
 
         let (hs, _) = model.transformer(
             memFlat,
-            spatialShape: (h, w),
+            spatialShapes: spatialShapes,
             queryFeat: model.queryFeat,
             refpointEmbed: model.refpointEmbed,
             bboxEmbed: model.bboxEmbed

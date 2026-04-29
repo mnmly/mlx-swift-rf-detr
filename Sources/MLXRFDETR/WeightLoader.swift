@@ -30,10 +30,39 @@ public func loadWeights(url: URL, into model: RFDETRModel, dtype: DType = .float
         remapped.append(contentsOf: results)
     }
 
+    // RF-DETR checkpoints inherit DINOv2's pretrained pos_embed, whose grid size
+    // can differ from `(resolution / patch_size)²`. Python rfdetr interpolates
+    // at every forward pass; we do it once at load time to match the backbone's
+    // static buffer shape.
+    let targetPosLen = model.backbone.posEmbed.dim(1)
+    for i in 0..<remapped.count {
+        let (k, v) = remapped[i]
+        guard k == "backbone.pos_embed", v.dim(1) != targetPosLen else { continue }
+        remapped[i] = (k, resamplePosEmbed(v, targetTokens: targetPosLen))
+    }
+
     try model.update(
         parameters: ModuleParameters.unflattened(remapped),
         verify: verify
     )
+}
+
+/// Bilinearly resample `pos_embed` of shape `(1, 1 + storedSide², D)` to
+/// `(1, targetTokens, D)` where `targetTokens - 1` is a perfect square.
+private func resamplePosEmbed(_ posEmbed: MLXArray, targetTokens: Int) -> MLXArray {
+    let D = posEmbed.dim(2)
+    let storedPatches = posEmbed.dim(1) - 1
+    let targetPatches = targetTokens - 1
+    let storedSide = Int(Double(storedPatches).squareRoot().rounded())
+    let targetSide = Int(Double(targetPatches).squareRoot().rounded())
+
+    let dtype = posEmbed.dtype
+    let cls = posEmbed[0..., ..<1, 0...]                        // (1, 1, D)
+    let patch = posEmbed[0..., 1..., 0...].asType(.float32)     // upcast for resample
+    let grid = patch.reshaped([1, storedSide, storedSide, D])   // (1, sH, sW, D)
+    let resized = interpolateSpatial(grid, targetH: targetSide, targetW: targetSide)
+    let resizedFlat = resized.reshaped([1, targetSide * targetSide, D]).asType(dtype)
+    return concatenated([cls, resizedFlat], axis: 1)
 }
 
 // MARK: - Key sanitization
@@ -65,11 +94,14 @@ public func sanitized(key: String, value: MLXArray) -> [(String, MLXArray)] {
         return splitFusedQKV(key: k, value: value)
     }
 
-    // 6. Transpose Conv2d weights (PyTorch NCHW → MLX NHWC)
+    // 6. Transpose Conv weights (PyTorch NCHW → MLX NHWC)
     var v = value
     if v.ndim == 4 {
-        if k.lowercased().contains("conv") || k.contains("spatial_features_proj") || k.contains("patch_embed.proj") {
-            v = v.transposed(0, 2, 3, 1)  // (O, I, kH, kW) → (O, kH, kW, I)
+        // ConvTranspose2d in stages_sampling: PyTorch (in, out, kH, kW) → MLX (out, kH, kW, in)
+        if k.contains("stages_sampling") && !k.contains(".conv.") && k.hasSuffix(".weight") {
+            v = v.transposed(1, 2, 3, 0)
+        } else if k.lowercased().contains("conv") || k.contains("spatial_features_proj") || k.contains("patch_embed.proj") {
+            v = v.transposed(0, 2, 3, 1)  // Conv2d: (O, I, kH, kW) → (O, kH, kW, I)
         }
     }
 
@@ -125,11 +157,24 @@ private func remapBackbone(_ key: String) -> String {
 
 private func remapProjector(_ key: String) -> String {
     var k = key
-    // Projector structural remapping
     k = k.replacingOccurrences(of: "backbone.0.projector.", with: "projector.")
-    // stages[0][0] → c2f, stages[0][1] → final_norm
-    k = k.replacingOccurrences(of: "projector.stages.0.0.", with: "projector.c2f.")
-    k = k.replacingOccurrences(of: "projector.stages.0.1.", with: "projector.final_norm.")
+
+    // MLX Swift treats integer key segments as array indices, so we remap integer
+    // sub-module keys to named strings to match our @ModuleInfo declarations.
+    //
+    // stages.N.0.{rest}  → stages.N.c2f.{rest}   (ProjectorStage.c2f)
+    // stages.N.1.{rest}  → stages.N.norm.{rest}   (ProjectorStage.norm)
+    // stages_sampling.N.M.0.{rest} → stages_sampling.N.M.op.{rest}  (FeatureSamplerStep.op)
+    var parts = k.components(separatedBy: ".")
+    if parts.count >= 4 && parts[0] == "projector" && parts[1] == "stages"
+        && Int(parts[2]) != nil && (parts[3] == "0" || parts[3] == "1") {
+        parts[3] = parts[3] == "0" ? "c2f" : "norm"
+        k = parts.joined(separator: ".")
+    } else if parts.count >= 5 && parts[0] == "projector" && parts[1] == "stages_sampling"
+        && Int(parts[2]) != nil && Int(parts[3]) != nil && parts[4] == "0" {
+        parts[4] = "op"
+        k = parts.joined(separator: ".")
+    }
     return k
 }
 

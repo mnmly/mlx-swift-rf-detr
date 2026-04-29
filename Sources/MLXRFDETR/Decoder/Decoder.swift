@@ -44,21 +44,26 @@ public final class Decoder: Module {
         _ tgt: MLXArray,
         memory: MLXArray,
         referencePointsUnsigmoid: MLXArray,
-        spatialShape: (Int, Int),
+        spatialShapes: [(Int, Int)],
         bboxEmbed: DecoderMLP
     ) -> (MLXArray, MLXArray) {
         var output = tgt
         let refCoords = referencePointsUnsigmoid
         let dHalf = config.hiddenDim / 2 // 128
+        let nLvl = spatialShapes.count
 
         // Compute query_pos ONCE from reference points (lite_refpoint_refine)
         let refSine = genSineembedForPosition(refCoords, dModel: dHalf)
         let queryPos = refPointHead(refSine) // (B, Q, D)
 
         for layer in layers {
-            // 4D reference points for deformable cross-attention
-            let refpointsInput = refCoords.expandedDimensions(axis: 2) // (B, Q, 1, 4)
-            output = layer(output, memory: memory, referencePoints: refpointsInput, spatialShape: spatialShape, queryPos: queryPos)
+            // Broadcast reference points across levels: (B, Q, nLvl, 4)
+            let B = refCoords.dim(0); let Q = refCoords.dim(1)
+            let refpointsInput = broadcast(
+                refCoords.expandedDimensions(axis: 2),
+                to: [B, Q, nLvl, 4]
+            )
+            output = layer(output, memory: memory, referencePoints: refpointsInput, spatialShapes: spatialShapes, queryPos: queryPos)
         }
 
         output = norm(output)

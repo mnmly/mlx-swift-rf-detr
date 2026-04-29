@@ -42,7 +42,7 @@ final class MLXRFDETRTests: XCTestCase {
         let query = MLXArray.zeros([1, 300, 256])
         let refPoints = MLXArray.zeros([1, 300, 1, 4]) // 4D ref points (bbox_reparam)
         let value = MLXArray.zeros([1, 576, 256])
-        let out = attn(query, referencePoints: refPoints, value: value, spatialShape: (24, 24))
+        let out = attn(query, referencePoints: refPoints, value: value, spatialShapes: [(24, 24)])
         XCTAssertEqual(out.shape, [1, 300, 256])
     }
 
@@ -51,7 +51,7 @@ final class MLXRFDETRTests: XCTestCase {
         let query = MLXArray.zeros([1, 300, 256])
         let refPoints = MLXArray.zeros([1, 300, 2]) // 2D ref points
         let value = MLXArray.zeros([1, 576, 256])
-        let out = attn(query, referencePoints: refPoints, value: value, spatialShape: (24, 24))
+        let out = attn(query, referencePoints: refPoints, value: value, spatialShapes: [(24, 24)])
         XCTAssertEqual(out.shape, [1, 300, 256])
     }
 
@@ -62,7 +62,7 @@ final class MLXRFDETRTests: XCTestCase {
         let memory = MLXArray.zeros([1, 576, 256])
         let refPoints = MLXArray.zeros([1, 300, 1, 4])
         let queryPos = MLXArray.zeros([1, 300, 256])
-        let out = layer(tgt, memory: memory, referencePoints: refPoints, spatialShape: (24, 24), queryPos: queryPos)
+        let out = layer(tgt, memory: memory, referencePoints: refPoints, spatialShapes: [(24, 24)], queryPos: queryPos)
         XCTAssertEqual(out.shape, [1, 300, 256])
     }
 
@@ -103,7 +103,7 @@ final class MLXRFDETRTests: XCTestCase {
         let memory = MLXArray.zeros([1, 576, 256])
         let refUnsig = MLXArray.zeros([1, 300, 4])
         let bboxEmbed = DecoderMLP(inputDim: 256, hiddenDim: 256, outputDim: 4, numLayers: 3)
-        let (hs, refOut) = decoder(tgt, memory: memory, referencePointsUnsigmoid: refUnsig, spatialShape: (24, 24), bboxEmbed: bboxEmbed)
+        let (hs, refOut) = decoder(tgt, memory: memory, referencePointsUnsigmoid: refUnsig, spatialShapes: [(24, 24)], bboxEmbed: bboxEmbed)
         XCTAssertEqual(hs.shape, [1, 300, 256])
         XCTAssertEqual(refOut.shape, [1, 300, 4])
     }
@@ -115,7 +115,7 @@ final class MLXRFDETRTests: XCTestCase {
         let queryFeat = MLXArray.zeros([13 * 300, 256])
         let refpointEmbed = MLXArray.zeros([13 * 300, 4])
         let bboxEmbed = DecoderMLP(inputDim: 256, hiddenDim: 256, outputDim: 4, numLayers: 3)
-        let (hs, refOut) = transformer(memory, spatialShape: (24, 24), queryFeat: queryFeat, refpointEmbed: refpointEmbed, bboxEmbed: bboxEmbed)
+        let (hs, refOut) = transformer(memory, spatialShapes: [(24, 24)], queryFeat: queryFeat, refpointEmbed: refpointEmbed, bboxEmbed: bboxEmbed)
         XCTAssertEqual(hs.shape, [1, 300, 256])
         XCTAssertEqual(refOut.shape, [1, 300, 4])
     }
@@ -160,7 +160,7 @@ final class MLXRFDETRTests: XCTestCase {
         let config = RFDETRConfig(hiddenDim: 256, numQueries: 300, groupDetr: 1, numClasses: 91)
         let transformer = Transformer(config: config)
         let memory = MLXArray.zeros([1, 576, 256])
-        let (refTS, memTS) = transformer.twoStageSelect(memory, spatialShape: (24, 24), groupIdx: 0)
+        let (refTS, memTS) = transformer.twoStageSelect(memory, spatialShapes: [(24, 24)], groupIdx: 0)
         XCTAssertEqual(refTS.shape, [1, 300, 4])
         XCTAssertEqual(memTS.shape, [1, 300, 256])
     }
@@ -197,9 +197,10 @@ final class MLXRFDETRTests: XCTestCase {
             MLXArray.zeros([1, 24, 24, 384]),
             MLXArray.zeros([1, 24, 24, 384]),
         ]
-        let proj = MultiScaleProjector(inChannels: 1536, hiddenDim: 256)
-        let mem = proj(feats)
-        XCTAssertEqual(mem.shape, [1, 24, 24, 256])
+        let proj = MultiScaleProjector(scaleFactors: [1.0], inChannelsList: [384, 384, 384, 384], hiddenDim: 256)
+        let mems = proj(feats)
+        XCTAssertEqual(mems.count, 1)
+        XCTAssertEqual(mems[0].shape, [1, 24, 24, 256])
     }
 
     // MARK: - Full model test
@@ -211,7 +212,7 @@ final class MLXRFDETRTests: XCTestCase {
             depth: 12, numHeads: 6, numWindows: 2,
             featureIndices: [2, 5, 8, 11]
         )
-        let proj = MultiScaleProjector(inChannels: 1536, hiddenDim: 256)
+        let proj = MultiScaleProjector(scaleFactors: [1.0], inChannelsList: [384, 384, 384, 384], hiddenDim: 256)
         let model = RFDETRModel(config: config, backbone: bb, projector: proj)
 
         let x = MLXArray.zeros([1, 384, 384, 3])
@@ -229,7 +230,7 @@ final class MLXRFDETRTests: XCTestCase {
             depth: 12, numHeads: 6, numWindows: 2,
             featureIndices: [2, 5, 8, 11]
         )
-        let proj = MultiScaleProjector(inChannels: 1536, hiddenDim: 256)
+        let proj = MultiScaleProjector(scaleFactors: [1.0], inChannelsList: [384, 384, 384, 384], hiddenDim: 256)
         let segHead = SegmentationHead(inDim: 256, numBlocks: 4, bottleneckRatio: 1, downsampleRatio: 4)
         let model = RFDETRModel(config: config, backbone: bb, projector: proj, segmentationHead: segHead)
 
@@ -293,14 +294,38 @@ final class MLXRFDETRTests: XCTestCase {
     }
 
     func testSanitizeProjector() {
+        // stages.N.0.* → stages.N.c2f.* (ProjectorStage.c2f)
         let v = MLXArray.zeros([256, 1536, 1, 1])
         let results = sanitized(
             key: "model.backbone.0.projector.stages.0.0.cv1.conv.weight",
             value: v
         )
         XCTAssertEqual(results.count, 1)
-        XCTAssertEqual(results[0].0, "projector.c2f.cv1.conv.weight")
+        XCTAssertEqual(results[0].0, "projector.stages.0.c2f.cv1.conv.weight")
         XCTAssertEqual(results[0].1.shape, [256, 1, 1, 1536])
+    }
+
+    func testSanitizeProjectorNorm() {
+        // stages.N.1.weight → stages.N.norm.weight (ProjectorStage.norm)
+        let v = MLXArray.zeros([256])
+        let results = sanitized(
+            key: "model.backbone.0.projector.stages.0.1.weight",
+            value: v
+        )
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results[0].0, "projector.stages.0.norm.weight")
+    }
+
+    func testSanitizeProjectorSampler() {
+        // stages_sampling.N.M.0.weight → stages_sampling.N.M.op.weight (ConvTransposed2d)
+        let v = MLXArray.zeros([384, 192, 2, 2])  // PyTorch: (in, out, kH, kW)
+        let results = sanitized(
+            key: "model.backbone.0.projector.stages_sampling.0.0.0.weight",
+            value: v
+        )
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results[0].0, "projector.stages_sampling.0.0.op.weight")
+        XCTAssertEqual(results[0].1.shape, [192, 2, 2, 384])  // MLX: (out, kH, kW, in)
     }
 
     func testSanitizeSkipMaskToken() {
@@ -322,7 +347,7 @@ final class MLXRFDETRTests: XCTestCase {
             depth: 12, numHeads: 6, numWindows: 2,
             featureIndices: [2, 5, 8, 11]
         )
-        let proj = MultiScaleProjector(inChannels: 1536, hiddenDim: 256)
+        let proj = MultiScaleProjector(scaleFactors: [1.0], inChannelsList: [384, 384, 384, 384], hiddenDim: 256)
         let segHead = SegmentationHead(inDim: 256, numBlocks: 4, bottleneckRatio: 1, downsampleRatio: 4)
         let model = RFDETRModel(config: config, backbone: bb, projector: proj, segmentationHead: segHead)
 

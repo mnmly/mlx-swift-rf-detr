@@ -62,23 +62,25 @@ public func genSineembedForPosition(_ pos: MLXArray, dModel: Int = 128) -> MLXAr
 
 // MARK: - gen_encoder_output_proposals
 
-/// Generate grid of anchor proposals in [0, 1] coordinate space.
+/// Generate multi-level grid proposals in [0, 1] coordinate space.
 ///
-/// - Parameters:
-///   - H: feature map height.
-///   - W: feature map width.
-///   - scale: initial box size (fraction of image).
-/// - Returns: `(H * W, 4)` proposals in `[cx, cy, w, h]` format, values in (0, 1).
-public func genEncoderOutputProposals(H: Int, W: Int, scale: Float = 0.05) -> MLXArray {
-    let gridY = (MLXArray(stride(from: 0, through: H - 1, by: 1), [H]).asType(.float32) + 0.5) / Float(H)
-    let gridX = (MLXArray(stride(from: 0, through: W - 1, by: 1), [W]).asType(.float32) + 0.5) / Float(W)
+/// - Parameter spatialShapes: list of `(H, W)` per level.
+/// - Returns: `(sum(Hi*Wi), 4)` proposals in `[cx, cy, w, h]` format.
+public func genEncoderOutputProposals(spatialShapes: [(Int, Int)]) -> MLXArray {
+    var levelProposals: [MLXArray] = []
+    for (lvl, (H, W)) in spatialShapes.enumerated() {
+        let scale = Float(0.05) * pow(Float(2), Float(lvl))
+        let gridY = (MLXArray(stride(from: 0, through: H - 1, by: 1), [H]).asType(.float32) + 0.5) / Float(H)
+        let gridX = (MLXArray(stride(from: 0, through: W - 1, by: 1), [W]).asType(.float32) + 0.5) / Float(W)
 
-    let yy = broadcast(gridY.expandedDimensions(axis: 1), to: [H, W])
-    let xx = broadcast(gridX.expandedDimensions(axis: 0), to: [H, W])
+        let yy = broadcast(gridY.expandedDimensions(axis: 1), to: [H, W])
+        let xx = broadcast(gridX.expandedDimensions(axis: 0), to: [H, W])
 
-    let ww = MLXArray.full([H, W], values: MLXArray(scale))
-    let hh = MLXArray.full([H, W], values: MLXArray(scale))
+        let ww = MLXArray.full([H, W], values: MLXArray(scale))
+        let hh = MLXArray.full([H, W], values: MLXArray(scale))
 
-    let stacked_ = stacked([xx, yy, ww, hh], axis: -1) // (H, W, 4)
-    return stacked_.reshaped([-1, 4])
+        let levelGrid = stacked([xx, yy, ww, hh], axis: -1).reshaped([-1, 4]) // (H*W, 4)
+        levelProposals.append(levelGrid)
+    }
+    return concatenated(levelProposals, axis: 0)
 }

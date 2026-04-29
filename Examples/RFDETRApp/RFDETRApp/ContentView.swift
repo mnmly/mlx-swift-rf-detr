@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 import MLXRFDETR
 
 struct ContentView: View {
@@ -49,24 +48,7 @@ struct ContentView: View {
         HStack(spacing: 12) {
             Text("Model:").font(.headline)
 
-            Picker("Variant", selection: $model.variant) {
-                ForEach(RFDETRVariant.allCases) { v in
-                    Text(v.label).tag(v)
-                }
-            }
-            .frame(width: 160)
-            .labelsHidden()
-            .onChange(of: model.variant) { _, _ in
-                Task { await model.reloadIfNeeded() }
-            }
-
-            Toggle("Segmentation", isOn: $model.enableSegmentation)
-                .toggleStyle(.checkbox)
-                .onChange(of: model.enableSegmentation) { _, _ in
-                    Task { await model.reloadIfNeeded() }
-                }
-
-            Button("Select Weights\u{2026}") { selectWeights() }
+            Button("Select Model Directory\u{2026}") { selectModelDirectory() }
 
             if model.isLoading {
                 ProgressView().controlSize(.small)
@@ -76,8 +58,14 @@ struct ContentView: View {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                 Text(URL(fileURLWithPath: model.modelPath).lastPathComponent)
                     .font(.caption).lineLimit(1).truncationMode(.middle)
-                Text("res: \(model.processor.resolution)")
+                if let v = model.variant {
+                    Text(v.rawValue).font(.caption).foregroundStyle(.secondary)
+                }
+                Text("res: \(model.resolution)")
                     .font(.caption).foregroundStyle(.secondary)
+                if model.hasSegmentation {
+                    Text("seg").font(.caption).foregroundStyle(.secondary)
+                }
             }
 
             if let err = model.errorMessage {
@@ -91,14 +79,13 @@ struct ContentView: View {
         .background(Color(nsColor: .controlBackgroundColor))
     }
 
-    private func selectWeights() {
+    private func selectModelDirectory() {
         let panel = NSOpenPanel()
-        panel.title = "Select RF-DETR Weights File"
-        if let st = UTType(filenameExtension: "safetensors") {
-            panel.allowedContentTypes = [st]
-        }
+        panel.title = "Select RF-DETR Model Directory"
+        panel.message = "Choose a directory containing config.json and model.safetensors"
         panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
         Task { await model.loadModel(from: url) }
     }

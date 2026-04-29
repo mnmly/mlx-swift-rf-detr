@@ -56,7 +56,7 @@ public final class DecoderLayer: Module {
         _ tgt: MLXArray,
         memory: MLXArray,
         referencePoints: MLXArray,
-        spatialShape: (Int, Int),
+        spatialShapes: [(Int, Int)],
         queryPos: MLXArray? = nil
     ) -> MLXArray {
         // Self-attention
@@ -66,7 +66,7 @@ public final class DecoderLayer: Module {
 
         // Deformable cross-attention
         let crossQuery = queryPos != nil ? (out + queryPos!) : out
-        out = out + crossAttn(crossQuery, referencePoints: referencePoints, value: memory, spatialShape: spatialShape)
+        out = out + crossAttn(crossQuery, referencePoints: referencePoints, value: memory, spatialShapes: spatialShapes)
         out = norm2(out)
 
         // FFN
