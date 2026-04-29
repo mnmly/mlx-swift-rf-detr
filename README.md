@@ -2,6 +2,8 @@
 
 Real-time detection transformer ([RF-DETR](https://github.com/roboflow/rf-detr), ICLR 2026) ported to Apple Silicon via [mlx-swift](https://github.com/ml-explore/mlx-swift). Detection and instance segmentation on COCO 80 classes.
 
+<img width="1200" height="727" alt="Image" src="https://github.com/user-attachments/assets/7212e4c3-2916-4729-a725-81d3e703cdb3" />
+
 ## Install
 
 Add the package to your `Package.swift`:
