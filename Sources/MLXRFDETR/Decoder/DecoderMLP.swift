@@ -1,7 +1,7 @@
 // Variable-depth MLP with ReLU activation.
 // Used for bbox_embed, ref_point_head, enc_out_bbox_embed.
 //
-// PORT FROM: rf-detr-mlx/src/rfdetr/mlx/transformer.py (MLP class)
+// PORT FROM: ../../python/rf-detr/src/rfdetr/models/transformer.py (MLP class)
 
 import Foundation
 import MLX

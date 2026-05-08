@@ -2,7 +2,7 @@
 //
 // Position embedding is added to q and k only (not v).
 //
-// PORT FROM: rf-detr-mlx/src/rfdetr/mlx/transformer.py (DecoderSelfAttention)
+// PORT FROM: ../../python/rf-detr/src/rfdetr/models/transformer.py (decoder self-attn)
 
 import Foundation
 import MLX

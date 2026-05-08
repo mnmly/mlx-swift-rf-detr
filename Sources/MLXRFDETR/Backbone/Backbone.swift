@@ -8,7 +8,7 @@
 // run global attention; all other layers use windowed attention with a
 // configurable window grid size (num_windows × num_windows).
 //
-// PORT FROM: rf-detr-mlx/src/rfdetr/mlx/backbone.py
+// PORT FROM: ../../python/rf-detr/src/rfdetr/models/backbone/dinov2_with_windowed_attn.py
 
 import Foundation
 import MLX
@@ -206,7 +206,7 @@ public final class DINOv2Backbone: Module {
         let fi = featureIndices ?? [2, 5, 8, 11]
         self.featureIndices = fi
         // Full attention at the same layers where features are extracted.
-        // Mirrors rf-detr-mlx: window_block_indexes excludes out_feature_indexes,
+        // Mirrors python rf-detr: window_block_indexes excludes out_feature_indexes,
         // so those layers always run global attention.
         self.fullAttnLayers = Set(fi)
 
@@ -233,7 +233,7 @@ public final class DINOv2Backbone: Module {
     }
 
     /// (N, H*W, C) → (N*nW^2, win_h*win_w, C).
-    func windowPartition(_ patches: MLXArray, H: Int, W: Int, N: Int) -> MLXArray {
+    public func windowPartition(_ patches: MLXArray, H: Int, W: Int, N: Int) -> MLXArray {
         let nW = numWindows
         let C = patches.dim(2)
         let winH = H / nW

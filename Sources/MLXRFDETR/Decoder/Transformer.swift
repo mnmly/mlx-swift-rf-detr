@@ -3,7 +3,7 @@
 // The two-stage encoder selects top-K queries from the projected feature map,
 // refines box proposals, and feeds them into the decoder with learnable queries.
 //
-// PORT FROM: rf-detr-mlx/src/rfdetr/mlx/transformer.py (Transformer)
+// PORT FROM: ../../python/rf-detr/src/rfdetr/models/transformer.py (Transformer)
 
 import Foundation
 import MLX

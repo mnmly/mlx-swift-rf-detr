@@ -1,6 +1,6 @@
 // Utility functions for the RF-DETR decoder.
 //
-// PORT FROM: rf-detr-mlx/src/rfdetr/mlx/transformer.py
+// PORT FROM: ../../python/rf-detr/src/rfdetr/models/transformer.py
 
 import Foundation
 import MLX

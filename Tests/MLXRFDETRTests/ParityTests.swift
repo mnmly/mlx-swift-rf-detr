@@ -7,7 +7,16 @@ import XCTest
 
 final class ParityTests: XCTestCase {
 
+    /// Fixture directory resolution order:
+    ///   1. `RFDETR_FIXTURE_DIR` env var (forwarded via `TEST_RUNNER_RFDETR_FIXTURE_DIR`
+    ///      under `xcodebuild test`).
+    ///   2. Default `Tests/fixtures/` next to the test source.
+    /// Tests are skipped (not failed) when `weights.safetensors` is missing,
+    /// so CI without fixtures stays green.
     var fixtureDir: URL {
+        if let env = ProcessInfo.processInfo.environment["RFDETR_FIXTURE_DIR"] {
+            return URL(fileURLWithPath: env)
+        }
         let thisFile = URL(fileURLWithPath: #filePath)
         return thisFile
             .deletingLastPathComponent()   // MLXRFDETRTests/

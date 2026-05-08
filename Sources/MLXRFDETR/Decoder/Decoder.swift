@@ -3,7 +3,7 @@
 // Port of the RF-DETR decoder that generates query_pos from reference points
 // once (lite_refpoint_refine) and iterates through decoder layers.
 //
-// PORT FROM: rf-detr-mlx/src/rfdetr/mlx/transformer.py (Decoder)
+// PORT FROM: ../../python/rf-detr/src/rfdetr/models/transformer.py (TransformerDecoder)
 
 import Foundation
 import MLX

@@ -1,6 +1,6 @@
 // Multi-Scale Deformable Attention using Metal grid_sample kernel.
 //
-// PORT FROM: rf-detr-mlx/src/rfdetr/mlx/transformer.py (MSDeformableAttention)
+// PORT FROM: ../../python/rf-detr/src/rfdetr/models/ops/modules/ms_deform_attn.py (MSDeformAttn)
 
 import Foundation
 import MLX

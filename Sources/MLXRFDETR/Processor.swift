@@ -6,7 +6,7 @@
 //
 // Expected input: MLXArray with shape (H, W, 3), uint8 RGB pixel values [0, 255].
 //
-// PORT FROM: rf-detr-mlx/src/rfdetr/mlx/processing_rfdetr.py
+// PORT FROM: ../../python/rf-detr/src/rfdetr/datasets/transforms.py
 
 import Foundation
 import MLX

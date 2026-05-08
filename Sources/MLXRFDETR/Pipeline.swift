@@ -1,11 +1,11 @@
-// High-level inference wrapper. Mirrors the Python `RFDETRPredictor`:
+// High-level inference wrapper. Mirrors the Python `RFDETRPipeline`:
 // holds a model + processor + thresholds and exposes `predict(...)`
 // that runs preprocessing, the forward pass, and post-processing.
 
 import Foundation
 import MLX
 
-public final class RFDETRPredictor {
+public final class RFDETRPipeline {
     public let model: RFDETRModel
     public let processor: RFDETRProcessor
     public var scoreThreshold: Float
@@ -59,7 +59,7 @@ public final class RFDETRPredictor {
 import CoreGraphics
 import ImageIO
 
-public extension RFDETRPredictor {
+public extension RFDETRPipeline {
     /// Run detection on a CGImage.
     func predict(cgImage: CGImage) throws -> DetectionResult {
         let (pixelValues, originalSize) = try loadAndPreprocess(cgImage: cgImage, processor: processor)

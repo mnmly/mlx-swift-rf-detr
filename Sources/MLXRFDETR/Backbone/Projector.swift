@@ -9,7 +9,7 @@
 //   stages[scaleIdx][0]                       – C2f
 //   stages[scaleIdx][1]                       – LayerNorm
 //
-// PORT FROM: rf-detr-mlx/src/rfdetr/mlx/vision.py
+// PORT FROM: ../../python/rf-detr/src/rfdetr/models/backbone/projector.py
 
 import Foundation
 import MLX

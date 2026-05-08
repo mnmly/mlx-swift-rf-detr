@@ -1,5 +1,5 @@
 // RF-DETR variant presets. Each variant maps directly to a converted
-// model directory produced by `mlx_vlm.models.rfdetr.convert --variant <name>`.
+// model directory converted from the python rf-detr repo (see ../../python/rf-detr).
 //
 // Backbone hyperparameters (embedDim/depth/numHeads) are derived from
 // the `encoder` field of `config.json`; the variant cases here exist

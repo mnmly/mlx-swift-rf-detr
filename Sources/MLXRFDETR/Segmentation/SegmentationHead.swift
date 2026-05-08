@@ -1,6 +1,6 @@
 // RF-DETR Segmentation Head.
 //
-// PORT FROM: rf-detr-mlx/src/rfdetr/mlx/segmentation.py
+// PORT FROM: ../../python/rf-detr/src/rfdetr/models/segmentation_head.py
 
 import Foundation
 import MLX

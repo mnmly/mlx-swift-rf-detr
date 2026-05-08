@@ -3,7 +3,7 @@
 // Runs on CPU (Swift [Float]) for per-element control flow (NMS, thresholding)
 // which is more natural outside the MLX graph.
 //
-// PORT FROM: rf-detr-mlx/src/rfdetr/mlx/generate.py
+// PORT FROM: ../../python/rf-detr/src/rfdetr/models/lwdetr.py (PostProcess class)
 
 import Foundation
 import MLX

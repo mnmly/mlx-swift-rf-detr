@@ -1,6 +1,7 @@
 // Bilinear grid_sample Metal kernel with CustomFunction wrapper.
 //
-// PORT FROM: rf-detr-mlx/src/rfdetr/mlx/kernels.py (grid_sample)
+// PORT FROM: ../../python/rf-detr/src/rfdetr/models/ops/functions/ms_deform_attn_func.py
+//            (bilinear grid_sample inside ms_deform_attn_core_pytorch)
 // ADAPTED FROM: mlx-swift CustomFunctionExample.swift
 
 import Foundation
@@ -32,7 +33,7 @@ private let forwardSource = """
     if (b >= B) return;
 
     uint grid_idx = ((b * gH + h) * gW + w) * 2;
-    // align_corners=False (matches Python mlx-vlm kernels.py): ((g+1)*W - 1) / 2
+    // align_corners=False (matches torch.nn.functional.grid_sample): ((g+1)*W - 1) / 2
     float ix = ((grid[grid_idx] + 1) * W - 1) / 2.0;
     float iy = ((grid[grid_idx + 1] + 1) * H - 1) / 2.0;
 
@@ -93,7 +94,7 @@ private let vjpSource = """
     if (b >= B) return;
 
     uint grid_idx = ((b * gH + h) * gW + w) * 2;
-    // align_corners=False (matches Python mlx-vlm kernels.py): ((g+1)*W - 1) / 2
+    // align_corners=False (matches torch.nn.functional.grid_sample): ((g+1)*W - 1) / 2
     float ix = ((grid[grid_idx] + 1) * W - 1) / 2.0;
     float iy = ((grid[grid_idx + 1] + 1) * H - 1) / 2.0;
 

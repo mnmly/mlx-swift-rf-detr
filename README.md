@@ -25,17 +25,11 @@ Add the package to your `Package.swift`:
 
 ## Convert weights
 
-Use the [mlx-vlm](https://github.com/Blaizzy/mlx-vlm) converter to produce an MLX-compatible directory (one-time, requires Python + PyTorch + safetensors):
+The reference PyTorch model lives at [`../../python/rf-detr`](https://github.com/roboflow/rf-detr). The Swift loader reads a converted directory containing `config.json`, `preprocessor_config.json`, and `model.safetensors` (no PyTorch dependency at inference time).
 
-```bash
-git clone https://github.com/Blaizzy/mlx-vlm
-cd mlx-vlm
-python -m mlx_vlm.models.rfdetr.convert --variant base --output ./rfdetr-base-mlx
-```
+Available variants: `base`, `small`, `large`, `seg-small`, `seg-large`, `seg-xlarge`, `seg-2xlarge`.
 
-Available `--variant` values: `base`, `small`, `large`, `seg-small`, `seg-large`, `seg-xlarge`, `seg-2xlarge`.
-
-The output directory contains `config.json`, `preprocessor_config.json`, and `model.safetensors`. No PyTorch dependency at inference time.
+Any converter that emits the above three files works; the [mlx-vlm rfdetr converter](https://github.com/Blaizzy/mlx-vlm/tree/main/mlx_vlm/models/rfdetr) is one option.
 
 ## Quick start
 
@@ -43,14 +37,7 @@ The output directory contains `config.json`, `preprocessor_config.json`, and `mo
 import MLXRFDETR
 
 let dir = URL(fileURLWithPath: "./rfdetr-base-mlx")
-let (model, processor, _) = try RFDETR.load(directory: dir)
-
-let predictor = RFDETRPredictor(
-    model: model,
-    processor: processor,
-    scoreThreshold: 0.3,
-    nmsThreshold: 0.5
-)
+let predictor = try MLXRFDETR.fromPretrained(dir, scoreThreshold: 0.3, nmsThreshold: 0.5)
 
 // From a file URL
 let result = try predictor.predict(url: URL(fileURLWithPath: "image.jpg"))
@@ -69,12 +56,8 @@ for i in 0..<result.count {
 ## Filtering
 
 ```swift
-let predictor = RFDETRPredictor(
-    model: model,
-    processor: processor,
-    scoreThreshold: 0.3,
-    excludeClasses: ["couch", "potted plant"]
-)
+var predictor = try MLXRFDETR.fromPretrained(dir, scoreThreshold: 0.3)
+predictor.excludeClasses = ["couch", "potted plant"]
 ```
 
 ## Variants
@@ -89,11 +72,44 @@ let predictor = RFDETRPredictor(
 | `seg-xlarge` | Detection + masks | 624 |
 | `seg-2xlarge` | Detection + masks | 768 |
 
-`RFDETR.load(directory:)` reads the variant fields from `config.json`, so you don't need to pick the right variant manually.
+`MLXRFDETR.fromPretrained(_:)` (and the underlying `RFDETR.load(directory:)`) reads the variant fields from `config.json`, so you don't need to pick the right variant manually.
 
 ## Lower-level API
 
 If you need finer control, you can build the model yourself — see `RFDETRModel`, `DINOv2Backbone`, `MultiScaleProjector`, `SegmentationHead`, `loadWeights(url:into:)`, and `postProcess(...)`.
+
+## Benchmarks
+
+See [`Benchmarks/README.md`](Benchmarks/README.md) for the reproduction
+protocol. Inference-only, batch=1, 512×512 input, RF-DETR Small.
+
+| Backend | dtype | Median (ms) | Mean (ms) | Min | Max |
+|---|---|---|---|---|---|
+| Torch / MPS | float32 | 29.62 | 29.77 | 25.69 | 33.32 |
+| Torch / MPS | float16 | 22.39 | 22.20 | 19.66 | 24.12 |
+| mlx-swift | float16 | 20.21 | 20.30 | 19.24 | 21.53 |
+
+Per-stage medians (ms, all fp16):
+
+| Stage | Torch / MPS | mlx-swift |
+|---|---|---|
+| backbone | 4.91 | 10.22 |
+| projector | 1.32 | 1.81 |
+| transformer | 15.75 | 7.41 |
+| heads | 0.42 | 0.78 |
+
+Hardware: Apple M5 Max, 128 GB, macOS 26.5. 20 iterations, 5 warmup.
+
+> Backbone runs ~2.1× slower than Torch MPS at matched fp16; total stays
+> within 10%. See [`PERF_NOTES.md`](PERF_NOTES.md) for the diagnosis,
+> verified obvious wins, and deferred optimization plan.
+Reproduce with:
+
+```bash
+python Benchmarks/benchmark_compare.py \
+  --iterations 20 --warmup 5 \
+  --swift-dtype float16 --python-dtype float16
+```
 
 ## Example app
 

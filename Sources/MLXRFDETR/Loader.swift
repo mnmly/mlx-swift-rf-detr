@@ -1,6 +1,7 @@
 // High-level factory for loading a converted RF-DETR model directory.
 //
-// Expects the layout produced by `mlx_vlm.models.rfdetr.convert`:
+// Expects the converted-checkpoint layout (config.json + safetensors) produced
+// from the python rf-detr repo (see ../../python/rf-detr):
 //
 //   <directory>/
 //     config.json
@@ -15,7 +16,8 @@ public enum RFDETR {
     /// Load a converted model directory into a ready-to-use model + processor.
     ///
     /// - Parameters:
-    ///   - directory: path to a directory produced by the mlx-vlm rfdetr converter.
+    ///   - directory: path to a converted checkpoint directory (config.json +
+    ///     preprocessor_config.json + model.safetensors).
     ///   - dtype: parameter dtype (default `.float16`).
     /// - Returns: configured model, matching processor, and detected variant.
     public static func load(
@@ -28,7 +30,7 @@ public enum RFDETR {
         let enc = EncoderSpec.from(cfg.encoder)
         let nFeatures = cfg.outFeatureIndexes.count
 
-        // mlx-vlm config supports both 0-indexed and HF/1-indexed `out_feature_indexes`.
+        // Converted configs may be 0-indexed or HF/1-indexed `out_feature_indexes`.
         // If any index is >= depth, treat the list as 1-indexed and shift.
         let isHFIndexed = cfg.outFeatureIndexes.contains { $0 >= enc.depth }
         let featureIndices = isHFIndexed

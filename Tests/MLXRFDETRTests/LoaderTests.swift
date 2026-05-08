@@ -14,7 +14,7 @@ final class LoaderTests: XCTestCase {
             return URL(fileURLWithPath: env)
         }
         // Fallback: sibling python checkout used during development.
-        let candidate = URL(fileURLWithPath: "/Users/mnmly/Development-local/GitHub/python/mlx-vlm")
+        let candidate = URL(fileURLWithPath: "/Users/mnmly/Development-local/GitHub/python/rf-detr")
         return FileManager.default.fileExists(atPath: candidate.path) ? candidate : nil
     }
 
@@ -81,7 +81,7 @@ final class LoaderTests: XCTestCase {
 
     func testSegPredictorReturnsMasks() throws {
         guard let (model, processor, _) = try loadIfAvailable("rfdetr-seg-small-mlx") else { return }
-        let predictor = RFDETRPredictor(
+        let predictor = RFDETRPipeline(
             model: model, processor: processor,
             scoreThreshold: 0.0, nmsThreshold: 1.0  // keep everything to verify the mask path
         )
@@ -97,7 +97,7 @@ final class LoaderTests: XCTestCase {
 
     func testPredictorOnZeros() throws {
         guard let (model, processor, _) = try loadIfAvailable("rfdetr-small-mlx") else { return }
-        let predictor = RFDETRPredictor(
+        let predictor = RFDETRPipeline(
             model: model, processor: processor,
             scoreThreshold: 0.5, nmsThreshold: 0.5
         )

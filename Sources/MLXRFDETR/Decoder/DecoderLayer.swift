@@ -1,6 +1,6 @@
 // Single decoder layer: self-attn → cross-attn (deformable) → FFN.
 //
-// PORT FROM: rf-detr-mlx/src/rfdetr/mlx/transformer.py (DecoderLayer)
+// PORT FROM: ../../python/rf-detr/src/rfdetr/models/transformer.py (TransformerDecoderLayer)
 
 import Foundation
 import MLX

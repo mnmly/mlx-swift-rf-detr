@@ -25,3 +25,5 @@ DerivedData/
 test_idx.swift
 run.sh
 .xcdd
+.xcode-bench/
+*.profraw

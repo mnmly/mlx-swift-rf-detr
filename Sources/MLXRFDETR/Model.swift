@@ -2,7 +2,7 @@
 //
 // Also supports optional segmentation head for mask prediction.
 //
-// PORT FROM: rf-detr-mlx/src/rfdetr/mlx/rfdetr.py (Model class)
+// PORT FROM: ../../python/rf-detr/src/rfdetr/models/lwdetr.py (LWDETR class)
 
 import Foundation
 import MLX

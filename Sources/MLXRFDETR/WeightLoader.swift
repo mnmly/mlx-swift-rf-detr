@@ -3,7 +3,7 @@
 // Converts HuggingFace PyTorch safetensors keys to MLX-Swift module tree keys,
 // including Conv2d weight transposition and fused QKV splitting.
 //
-// PORT FROM: rf-detr-mlx/src/rfdetr/mlx/rfdetr.py (Model.sanitize)
+// PORT FROM: ../../python/rf-detr/src/rfdetr/models/lwdetr.py (state_dict keys)
 
 import Foundation
 import MLX

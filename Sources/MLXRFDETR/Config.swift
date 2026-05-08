@@ -1,6 +1,6 @@
 // RF-DETR configuration.
 //
-// PORT FROM: rf-detr-mlx/src/rfdetr/mlx/config.py
+// PORT FROM: ../../python/rf-detr/src/rfdetr/config.py
 
 import Foundation
 

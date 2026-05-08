@@ -5,13 +5,13 @@ import MLXRFDETR
 
 // Sendable conformances so we can hop between actors. The MLX-backed values
 // are read-only after model load; DetectionResult contains only Swift value types.
-extension RFDETRPredictor: @unchecked @retroactive Sendable {}
+extension RFDETRPipeline: @unchecked @retroactive Sendable {}
 extension DetectionResult: @unchecked @retroactive Sendable {}
 
 @MainActor
 @Observable
 final class RFDETRViewModel {
-    var predictor: RFDETRPredictor?
+    var predictor: RFDETRPipeline?
     var variant: RFDETRVariant?
     var resolution: Int = 0
     var hasSegmentation: Bool = false
@@ -33,7 +33,7 @@ final class RFDETRViewModel {
                 try RFDETR.load(directory: directory, dtype: .float16)
             }.value
 
-            self.predictor = RFDETRPredictor(
+            self.predictor = RFDETRPipeline(
                 model: model,
                 processor: processor,
                 scoreThreshold: 0.5,
