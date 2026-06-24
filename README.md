@@ -13,7 +13,7 @@ Real-time detection transformer ([RF-DETR](https://github.com/roboflow/rf-detr),
 Add the package to your `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/<you>/mlx-swift-rf-detr", from: "0.0.1"),
+.package(url: "https://github.com/mnmly/mlx-swift-rf-detr", from: "0.0.1"),
 ```
 
 ```swift
@@ -27,11 +27,11 @@ Add the package to your `Package.swift`:
 
 ## Convert weights
 
-The reference PyTorch model lives at [`../../python/rf-detr`](https://github.com/roboflow/rf-detr). The Swift loader reads a converted directory containing `config.json`, `preprocessor_config.json`, and `model.safetensors` (no PyTorch dependency at inference time).
+The reference PyTorch model lives at [roboflow/rf-detr](https://github.com/roboflow/rf-detr); this port tracks upstream **[`1.8.1`](https://github.com/roboflow/rf-detr/releases/tag/1.8.1)** (detection + segmentation deliverables, plus the `keypoint-preview` GroupPose model). The Swift loader reads a converted directory containing `config.json`, `preprocessor_config.json`, and `model.safetensors` (no PyTorch dependency at inference time).
 
-Available variants: `base`, `small`, `large`, `seg-small`, `seg-large`, `seg-xlarge`, `seg-2xlarge`.
+Available variants: `base`, `small`, `large`, `seg-small`, `seg-large`, `seg-xlarge`, `seg-2xlarge`, `keypoint-preview`.
 
-Any converter that emits the above three files works; the [mlx-vlm rfdetr converter](https://github.com/Blaizzy/mlx-vlm/tree/main/mlx_vlm/models/rfdetr) is one option.
+Any converter that emits the above three files works; the [mlx-vlm rfdetr converter](https://github.com/Blaizzy/mlx-vlm/tree/main/mlx_vlm/models/rfdetr) is one option for detection/segmentation. For the `keypoint-preview` model, use [`Scripts/convert_keypoint.py`](Scripts/convert_keypoint.py) (downloads the upstream checkpoint and writes the converted directory).
 
 ## Quick start
 
@@ -73,6 +73,7 @@ predictor.excludeClasses = ["couch", "potted plant"]
 | `seg-large` | Detection + masks | 504 |
 | `seg-xlarge` | Detection + masks | 624 |
 | `seg-2xlarge` | Detection + masks | 768 |
+| `keypoint-preview` | Detection + keypoints (person, 17 COCO) | 576 |
 
 `MLXRFDETR.fromPretrained(_:)` (and the underlying `RFDETR.load(directory:)`) reads the variant fields from `config.json`, so you don't need to pick the right variant manually.
 
