@@ -76,18 +76,30 @@ public func sanitized(key: String, value: MLXArray) -> [(String, MLXArray)] {
     guard key.hasPrefix("model.") else { return [] }
     var k = String(key.dropFirst("model.".count))
 
-    // 2. Skip mask_token
+    // 2. Skip mask_token and keypoint buffers we don't materialize.
+    //    keypoint_class_mask is all-False for the preview schema (no-op); _kp_active_mask
+    //    is recomputed from config in the model. Neither has a Swift parameter.
     if k.contains("mask_token") { return [] }
+    if k.contains("keypoint_class_mask") || k.contains("_kp_active_mask") { return [] }
 
     // 3. Remap backbone key structure
     k = remapBackbone(k)
 
-    // 4. Remap projector key structure
+    // 4. Remap projector key structure (main + keypoint cross-attn projector)
     k = remapProjector(k)
 
     // 4b. nn.Embedding → bare ParameterInfo (Swift stores these as MLXArray, not Module)
     if k == "refpoint_embed.weight" { k = "refpoint_embed" }
     if k == "query_feat.weight" { k = "query_feat" }
+
+    // 4c. Keypoint initializer AdaLN: PyTorch nn.Sequential indices are 0 (Linear),
+    //     1 (GELU, no weights), 2 (Linear). Collapse index 2 → 1 to fit the Swift
+    //     two-element `[Linear]` array (GELU applied in code).
+    if k.contains(".adaLN_modulation.2.") {
+        k = k.replacingOccurrences(of: ".adaLN_modulation.2.", with: ".adaLN_modulation.1.")
+    }
+    // Keypoint decoder positional embedding: bare ParameterInfo.
+    if k == "transformer.decoder.keypoint_pos_embed" { /* already correct */ }
 
     // 5. Handle fused QKV split for decoder self-attention
     if k.contains("in_proj_weight") || k.contains("in_proj_bias") {
@@ -157,7 +169,9 @@ private func remapBackbone(_ key: String) -> String {
 
 private func remapProjector(_ key: String) -> String {
     var k = key
+    // Main projector and keypoint cross-attention projector (dual_projector).
     k = k.replacingOccurrences(of: "backbone.0.projector.", with: "projector.")
+    k = k.replacingOccurrences(of: "backbone.0.cross_attn_projector.", with: "cross_attn_projector.")
 
     // MLX Swift treats integer key segments as array indices, so we remap integer
     // sub-module keys to named strings to match our @ModuleInfo declarations.
@@ -166,11 +180,12 @@ private func remapProjector(_ key: String) -> String {
     // stages.N.1.{rest}  → stages.N.norm.{rest}   (ProjectorStage.norm)
     // stages_sampling.N.M.0.{rest} → stages_sampling.N.M.op.{rest}  (FeatureSamplerStep.op)
     var parts = k.components(separatedBy: ".")
-    if parts.count >= 4 && parts[0] == "projector" && parts[1] == "stages"
+    let isProjector = parts.first == "projector" || parts.first == "cross_attn_projector"
+    if parts.count >= 4 && isProjector && parts[1] == "stages"
         && Int(parts[2]) != nil && (parts[3] == "0" || parts[3] == "1") {
         parts[3] = parts[3] == "0" ? "c2f" : "norm"
         k = parts.joined(separator: ".")
-    } else if parts.count >= 5 && parts[0] == "projector" && parts[1] == "stages_sampling"
+    } else if parts.count >= 5 && isProjector && parts[1] == "stages_sampling"
         && Int(parts[2]) != nil && Int(parts[3]) != nil && parts[4] == "0" {
         parts[4] = "op"
         k = parts.joined(separator: ".")

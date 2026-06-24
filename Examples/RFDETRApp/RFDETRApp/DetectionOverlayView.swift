@@ -48,6 +48,9 @@ struct DetectionOverlayView: View {
                 if let result {
                     Canvas { context, _ in
                         drawBoxes(in: context, result: result, scale: scale, offset: CGPoint(x: offsetX, y: offsetY))
+                        drawKeypoints(in: context, result: result, scale: scale,
+                                      offset: CGPoint(x: offsetX, y: offsetY),
+                                      imageSize: CGSize(width: imgW, height: imgH))
                     }
                     .allowsHitTesting(false)
                 }
@@ -70,6 +73,108 @@ struct DetectionOverlayView: View {
             let conf = result.scores[i]
             drawTag(text: "\(label) \(String(format: "%.2f", conf))", at: rect.origin, color: color, in: context)
         }
+    }
+
+    /// COCO-17 skeleton edges (0-indexed): connects nose/eyes/ears, shoulders/arms,
+    /// hips/legs. Used to draw a stick figure over keypoint detections.
+    static let cocoSkeleton: [(Int, Int)] = [
+        (5, 7), (7, 9), (6, 8), (8, 10),        // arms
+        (11, 13), (13, 15), (12, 14), (14, 16), // legs
+        (5, 6), (11, 12), (5, 11), (6, 12),     // torso
+        (0, 1), (0, 2), (1, 3), (2, 4), (0, 5), (0, 6), // head/neck
+    ]
+
+    /// Draw keypoints (confidence-gated) plus the COCO skeleton per detection,
+    /// including per-keypoint uncertainty ellipses from the precision-Cholesky output.
+    private func drawKeypoints(in context: GraphicsContext, result: DetectionResult, scale: CGFloat, offset: CGPoint, imageSize: CGSize) {
+        guard let keypoints = result.keypoints else { return }
+        let precision = result.keypointPrecisionCholesky
+        let confThreshold: Float = 0.5
+        // Ellipse drawn at this many standard deviations (1σ ≈ 39% mass for 2D Gaussian).
+        let nSigma: CGFloat = 2.0
+        for i in 0..<min(result.count, keypoints.count) {
+            let kp = keypoints[i]            // (maxK, 3): x_px, y_px, confidence
+            let prec = (precision != nil && i < precision!.count) ? precision![i] : nil
+            let color = colorAt(i)
+            func point(_ k: Int) -> CGPoint {
+                CGPoint(x: CGFloat(kp[k, 0]) * scale + offset.x, y: CGFloat(kp[k, 1]) * scale + offset.y)
+            }
+
+            // Uncertainty ellipses (drawn under the dots/skeleton).
+            if let prec {
+                for k in 0..<kp.rows where kp[k, 2] >= confThreshold {
+                    guard let e = covarianceEllipse(
+                        logL11: prec[k, 0], l21: prec[k, 1], logL22: prec[k, 2],
+                        width: Double(imageSize.width), height: Double(imageSize.height)
+                    ) else { continue }
+                    let c = point(k)
+                    let ax = CGFloat(e.semiMajor) * nSigma * scale
+                    let ay = CGFloat(e.semiMinor) * nSigma * scale
+                    // Skip degenerate/huge ellipses that would smear across the image.
+                    guard ax.isFinite, ay.isFinite, ax > 0.5, max(ax, ay) < imageSize.width * scale else { continue }
+                    let base = Path(ellipseIn: CGRect(x: -ax, y: -ay, width: 2 * ax, height: 2 * ay))
+                    let t = CGAffineTransform(translationX: c.x, y: c.y).rotated(by: CGFloat(e.angle))
+                    context.stroke(base.applying(t), with: .color(color.opacity(0.45)), lineWidth: 1)
+                }
+            }
+            // Skeleton edges (both endpoints confident); edge opacity tracks the
+            // weaker of the two endpoint confidences.
+            if kp.rows >= 17 {
+                for (a, b) in Self.cocoSkeleton where kp[a, 2] >= confThreshold && kp[b, 2] >= confThreshold {
+                    var path = Path()
+                    path.move(to: point(a))
+                    path.addLine(to: point(b))
+                    let edgeConf = min(kp[a, 2], kp[b, 2])
+                    context.stroke(path, with: .color(color.opacity(Double(edgeConf))), lineWidth: 2)
+                }
+            }
+            // Keypoint dots: radius and opacity encode per-keypoint confidence.
+            for k in 0..<kp.rows where kp[k, 2] >= confThreshold {
+                let p = point(k)
+                let conf = kp[k, 2]                       // 0…1 (sigmoid of findable logit)
+                let radius = 2.0 + 3.0 * CGFloat(conf)    // 2…5 px
+                let dot = CGRect(x: p.x - radius, y: p.y - radius, width: radius * 2, height: radius * 2)
+                context.fill(Path(ellipseIn: dot), with: .color(.white.opacity(Double(conf))))
+                context.stroke(Path(ellipseIn: dot), with: .color(color), lineWidth: 1.5)
+                // Confidence label for higher-confidence joints (avoids clutter).
+                if conf >= 0.7 {
+                    context.draw(
+                        Text(String(format: "%.2f", conf)).font(.system(size: 8, weight: .medium)).foregroundStyle(color),
+                        at: CGPoint(x: p.x, y: p.y - radius - 6)
+                    )
+                }
+            }
+        }
+    }
+
+    /// Convert precision-Cholesky params `(log_l11, l21, log_l22)` to a pixel-space
+    /// covariance ellipse (semi-axes + rotation). Ports
+    /// `rfdetr.utilities.keypoints.precision_cholesky_to_pixel_covariance` followed by a
+    /// 2×2 symmetric eigen-decomposition.
+    private func covarianceEllipse(
+        logL11: Float, l21: Float, logL22: Float, width: Double, height: Double
+    ) -> (semiMajor: Double, semiMinor: Double, angle: Double)? {
+        let a0 = Double(logL11), a1 = Double(l21), a2 = Double(logL22)
+        guard a0.isFinite, a1.isFinite, a2.isFinite else { return nil }
+        let l11 = exp(a0), l22 = exp(a2)
+        let invDet = 1.0 / (l11 * l11 * l22 * l22)
+        guard invDet.isFinite else { return nil }
+        // Covariance = precision⁻¹ (normalized coords), scaled to pixels.
+        let cov00 = invDet * (a1 * a1 + l22 * l22)
+        let cov01 = invDet * (-l11 * a1)
+        let cov11 = invDet * (l11 * l11)
+        let a = width * width * cov00      // px00
+        let b = width * height * cov01     // px01
+        let c = height * height * cov11    // px11
+        guard a.isFinite, b.isFinite, c.isFinite else { return nil }
+        // Eigenvalues of symmetric [[a, b], [b, c]].
+        let half = (a + c) / 2
+        let common = ((a - c) / 2 * (a - c) / 2 + b * b).squareRoot()
+        let lambda1 = half + common
+        let lambda2 = max(0, half - common)
+        guard lambda1.isFinite, lambda1 > 0 else { return nil }
+        let angle = 0.5 * atan2(2 * b, a - c)
+        return (lambda1.squareRoot(), lambda2.squareRoot(), angle)
     }
 
     /// Composite per-instance mask logits (sigmoid > 0.5) into a single CGImage at mask resolution.

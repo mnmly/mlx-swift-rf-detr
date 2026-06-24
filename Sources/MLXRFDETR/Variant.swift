@@ -15,6 +15,7 @@ public enum RFDETRVariant: String, CaseIterable, Sendable {
     case segLarge = "seg-large"
     case segXLarge = "seg-xlarge"
     case seg2XLarge = "seg-2xlarge"
+    case keypointPreview = "keypoint-preview"
 
     public var hasSegmentation: Bool {
         switch self {
@@ -23,12 +24,15 @@ public enum RFDETRVariant: String, CaseIterable, Sendable {
         }
     }
 
+    public var hasKeypoints: Bool { self == .keypointPreview }
+
     /// Match the converter's MODEL_VARIANTS table by signature.
     static func detect(resolution: Int, decLayers: Int, segmentation: Bool, numQueries: Int, hiddenDim: Int = 256) -> RFDETRVariant? {
         switch (resolution, decLayers, segmentation, numQueries, hiddenDim) {
         case (560, 3, false, 300, 256): return .base
         case (512, 3, false, 300, _):   return .small
         case (560, 3, false, 300, 384): return .large
+        case (576, 4, false, 100, 256): return .keypointPreview
         case (384, 4, true,  100, _):   return .segSmall
         case (504, 5, true,  300, _):   return .segLarge
         case (624, 6, true,  300, _):   return .segXLarge

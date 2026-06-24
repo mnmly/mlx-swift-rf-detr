@@ -14,6 +14,8 @@ public final class Decoder: Module {
     @ModuleInfo(key: "layers") public var layers: [DecoderLayer]
     @ModuleInfo(key: "norm") public var norm: LayerNorm
     @ModuleInfo(key: "ref_point_head") public var refPointHead: DecoderMLP
+    /// Keypoint positional embeddings `(totalKeypoints, kpDim)` — keypoints only.
+    @ParameterInfo(key: "keypoint_pos_embed") public var keypointPosEmbed: MLXArray?
 
     public let config: RFDETRConfig
 
@@ -37,6 +39,12 @@ public final class Decoder: Module {
             ),
             key: "ref_point_head"
         )
+        if config.useGroupposeKeypoints {
+            self._keypointPosEmbed = ParameterInfo(
+                wrappedValue: MLXArray.zeros([config.totalKeypoints, config.keypointDim]),
+                key: "keypoint_pos_embed"
+            )
+        }
         super.init()
     }
 
@@ -68,5 +76,61 @@ public final class Decoder: Module {
 
         output = norm(output)
         return (output, refCoords)
+    }
+
+    /// Decoder forward with the keypoint subnetwork active.
+    ///
+    /// - Parameters:
+    ///   - tgtKeypoints: initial keypoint queries `(B, Q, K, kpDim)` from the initializer.
+    ///   - keypointMemory: dual-projector memory for keypoint cross-attention.
+    /// - Returns: `(hs, refCoords, keypointHs)` for the final decoder layer.
+    public func callWithKeypoints(
+        _ tgt: MLXArray,
+        memory: MLXArray,
+        keypointMemory: MLXArray,
+        tgtKeypoints: MLXArray,
+        referencePointsUnsigmoid: MLXArray,
+        spatialShapes: [(Int, Int)],
+        bboxEmbed: DecoderMLP,
+        perLayer: ((Int, MLXArray, MLXArray) -> Void)? = nil
+    ) -> (MLXArray, MLXArray, MLXArray) {
+        var output = tgt
+        var keypointTgt = tgtKeypoints
+        let refCoords = referencePointsUnsigmoid
+        let dHalf = config.hiddenDim / 2
+        let nLvl = spatialShapes.count
+
+        let refSine = genSineembedForPosition(refCoords, dModel: dHalf)
+        let queryPos = refPointHead(refSine)  // (B, Q, D)
+
+        let B = refCoords.dim(0); let Q = refCoords.dim(1)
+        let K = config.totalKeypoints
+        // keypoint_pos = keypoint_pos_embed broadcast to (B, Q, K, kpDim)
+        let kpPos = broadcast(
+            keypointPosEmbed!.reshaped([1, 1, K, config.keypointDim]),
+            to: [B, Q, K, config.keypointDim]
+        )
+
+        let refpointsInput = broadcast(
+            refCoords.expandedDimensions(axis: 2),
+            to: [B, Q, nLvl, 4]
+        )
+
+        for (i, layer) in layers.enumerated() {
+            (output, keypointTgt) = layer.forwardWithKeypoints(
+                output,
+                keypointTgt: keypointTgt,
+                memory: memory,
+                keypointMemory: keypointMemory,
+                referencePoints: refpointsInput,
+                spatialShapes: spatialShapes,
+                queryPos: queryPos,
+                keypointPos: kpPos
+            )
+            perLayer?(i, output, keypointTgt)
+        }
+
+        output = norm(output)
+        return (output, refCoords, keypointTgt)
     }
 }

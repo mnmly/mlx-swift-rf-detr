@@ -17,6 +17,15 @@ public final class Transformer: Module {
     @ModuleInfo(key: "enc_out_bbox_embed") public var encOutBBoxEmbed: [DecoderMLP]
     @ModuleInfo(key: "decoder") public var decoder: Decoder
 
+    // MARK: Keypoint modules (present only when keypoints are enabled)
+    /// Seeds decoder keypoint queries from detection queries (used at inference).
+    @ModuleInfo(key: "keypoint_query_initializer") public var keypointQueryInitializer: ConditionalQueryInitializer?
+    /// Encoder-stage keypoint initializer + heads. These feed the two-stage encoder
+    /// keypoint predictions (training aux only) and are not run at inference; they are
+    /// constructed so their checkpoint weights load cleanly.
+    @ModuleInfo(key: "keypoint_query_initializer_enc") public var keypointQueryInitializerEnc: ConditionalQueryInitializer?
+    @ModuleInfo(key: "enc_out_keypoint_embed") public var encOutKeypointEmbed: [DecoderMLP]?
+
     public let config: RFDETRConfig
 
     public init(config: RFDETRConfig) {
@@ -45,6 +54,26 @@ public final class Transformer: Module {
             wrappedValue: Decoder(config: config),
             key: "decoder"
         )
+
+        if config.useGroupposeKeypoints {
+            let kpDim = config.keypointDim
+            let K = config.totalKeypoints
+            self._keypointQueryInitializer = ModuleInfo(
+                wrappedValue: ConditionalQueryInitializer(dim: d, numQueries: K, outDim: kpDim),
+                key: "keypoint_query_initializer"
+            )
+            self._keypointQueryInitializerEnc = ModuleInfo(
+                wrappedValue: ConditionalQueryInitializer(dim: d, numQueries: K, outDim: kpDim),
+                key: "keypoint_query_initializer_enc"
+            )
+            // Copies of the keypoint head: MLP(kpDim → kpDim → kpDim → 8), 3 layers.
+            self._encOutKeypointEmbed = ModuleInfo(
+                wrappedValue: (0..<nGroups).map { _ in
+                    DecoderMLP(inputDim: kpDim, hiddenDim: kpDim, outputDim: 8, numLayers: 3)
+                },
+                key: "enc_out_keypoint_embed"
+            )
+        }
         super.init()
     }
 
@@ -145,5 +174,56 @@ public final class Transformer: Module {
         let (hs, refUnsig) = decoder(tgt, memory: memory, referencePointsUnsigmoid: combinedRefpoints, spatialShapes: spatialShapes, bboxEmbed: bboxEmbed)
 
         return (hs, refUnsig)
+    }
+
+    /// Forward with the keypoint subnetwork active.
+    ///
+    /// - Parameter keypointMemory: flattened dual-projector memory `(B, HW, D)`.
+    /// - Returns: `(hs, refUnsig, keypointHs)` for the final decoder layer.
+    public func callWithKeypoints(
+        _ memory: MLXArray,
+        keypointMemory: MLXArray,
+        spatialShapes: [(Int, Int)],
+        queryFeat: MLXArray,
+        refpointEmbed: MLXArray,
+        bboxEmbed: DecoderMLP,
+        perLayer: ((Int, MLXArray, MLXArray) -> Void)? = nil
+    ) -> (MLXArray, MLXArray, MLXArray) {
+        let B = memory.dim(0)
+        let nq = config.numQueries
+        let d = config.hiddenDim
+
+        let qf = queryFeat[0..<nq, 0...]
+        let rp = refpointEmbed[0..<nq, 0...]
+
+        let (refpointEmbedTS, _) = twoStageSelect(memory, spatialShapes: spatialShapes, groupIdx: 0)
+
+        let combinedRefpoints: MLXArray
+        if config.bboxReparam {
+            let rpBroad = rp.expandedDimensions(axis: 0)
+            let rpParts = rpBroad.split(parts: 2, axis: -1)
+            let tsParts = refpointEmbedTS.split(parts: 2, axis: -1)
+            let refCxcy = rpParts[0] * tsParts[1] + tsParts[0]
+            let refWH = exp(rpParts[1]) * tsParts[1]
+            combinedRefpoints = concatenated([refCxcy, refWH], axis: -1)
+        } else {
+            combinedRefpoints = rp.expandedDimensions(axis: 0) + refpointEmbedTS
+        }
+
+        let tgt = broadcast(qf.expandedDimensions(axis: 0), to: [B, nq, d])
+
+        // Seed keypoint queries from the (pre-decoder) detection queries.
+        let tgtKeypoints = keypointQueryInitializer!(tgt)  // (B, nq, K, kpDim)
+
+        return decoder.callWithKeypoints(
+            tgt,
+            memory: memory,
+            keypointMemory: keypointMemory,
+            tgtKeypoints: tgtKeypoints,
+            referencePointsUnsigmoid: combinedRefpoints,
+            spatialShapes: spatialShapes,
+            bboxEmbed: bboxEmbed,
+            perLayer: perLayer
+        )
     }
 }

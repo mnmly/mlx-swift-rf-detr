@@ -75,14 +75,31 @@ public enum RFDETR {
             numClasses: cfg.numClasses,
             twoStage: cfg.twoStage,
             bboxReparam: cfg.bboxReparam,
-            liteRefpointRefine: cfg.liteRefpointRefine
+            liteRefpointRefine: cfg.liteRefpointRefine,
+            useGroupposeKeypoints: cfg.useGroupposeKeypoints ?? false,
+            numKeypointsPerClass: cfg.numKeypointsPerClass ?? [],
+            keypointCrossAttn: cfg.keypointCrossAttn ?? true,
+            dualProjector: cfg.dualProjector ?? false,
+            dualProjectorKpOnly: cfg.dualProjectorKpOnly ?? false,
+            keypointDimDownscale: cfg.groupposeKeypointDimDownscale ?? 1,
+            interInstanceKpAttn: cfg.interInstanceKpAttn ?? false
         )
+
+        // Second projector dedicated to keypoint cross-attention (dual_projector).
+        let kpProjector: MultiScaleProjector? = (cfg.dualProjector ?? false)
+            ? MultiScaleProjector(
+                scaleFactors: scaleFactors,
+                inChannelsList: inChannelsList,
+                hiddenDim: cfg.hiddenDim
+            )
+            : nil
 
         let model = RFDETRModel(
             config: modelConfig,
             backbone: backbone,
             projector: projector,
-            segmentationHead: segHead
+            segmentationHead: segHead,
+            keypointProjector: kpProjector
         )
 
         let weightsURL = directory.appendingPathComponent("model.safetensors")
@@ -132,6 +149,15 @@ struct ModelJSON: Decodable {
     let segmentation: Bool?
     let segNumBlocks: Int?
     let positionalEncodingSize: Int?
+    // Keypoint (GroupPose) fields — all optional, absent for non-keypoint models.
+    let useGroupposeKeypoints: Bool?
+    let numKeypointsPerClass: [Int]?
+    let keypointCrossAttn: Bool?
+    let dualProjector: Bool?
+    let dualProjectorKpOnly: Bool?
+    let groupposeKeypointDimDownscale: Int?
+    let interInstanceKpAttn: Bool?
+    let traceAlpha: Float?
 
     enum CodingKeys: String, CodingKey {
         case modelType = "model_type"
@@ -155,6 +181,14 @@ struct ModelJSON: Decodable {
         case segmentation
         case segNumBlocks = "seg_num_blocks"
         case positionalEncodingSize = "positional_encoding_size"
+        case useGroupposeKeypoints = "use_grouppose_keypoints"
+        case numKeypointsPerClass = "num_keypoints_per_class"
+        case keypointCrossAttn = "keypoint_cross_attn"
+        case dualProjector = "dual_projector"
+        case dualProjectorKpOnly = "dual_projector_kp_only"
+        case groupposeKeypointDimDownscale = "grouppose_keypoint_dim_downscale"
+        case interInstanceKpAttn = "inter_instance_kp_attn"
+        case traceAlpha = "trace_alpha"
     }
 
     static func load(directory: URL) throws -> ModelJSON {

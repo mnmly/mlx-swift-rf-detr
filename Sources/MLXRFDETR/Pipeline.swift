@@ -12,6 +12,8 @@ public final class RFDETRPipeline {
     public var nmsThreshold: Float
     public var classNames: [String]?
     public var excludeClasses: Set<String>
+    /// Keypoint score-fusion weight (GroupPose models only).
+    public var keypointTraceAlpha: Float
 
     public init(
         model: RFDETRModel,
@@ -19,7 +21,8 @@ public final class RFDETRPipeline {
         scoreThreshold: Float = 0.5,
         nmsThreshold: Float = 0.5,
         classNames: [String]? = nil,
-        excludeClasses: [String] = []
+        excludeClasses: [String] = [],
+        keypointTraceAlpha: Float = 0.2
     ) {
         self.model = model
         self.processor = processor
@@ -27,6 +30,7 @@ public final class RFDETRPipeline {
         self.nmsThreshold = nmsThreshold
         self.classNames = classNames
         self.excludeClasses = Set(excludeClasses)
+        self.keypointTraceAlpha = keypointTraceAlpha
     }
 
     /// Run inference on a pre-normalized `(1, H, W, 3)` tensor.
@@ -38,16 +42,33 @@ public final class RFDETRPipeline {
         guard let logits = out["pred_logits"], let boxes = out["pred_boxes"] else {
             throw RFDETRError.invalidOutput
         }
-        var result = postProcess(
-            predLogits: logits,
-            predBoxes: boxes,
-            originalSize: originalSize,
-            scoreThreshold: scoreThreshold,
-            numSelect: processor.numSelect,
-            classNames: classNames,
-            predMasks: out["pred_masks"],
-            nmsThreshold: nmsThreshold
-        )
+        var result: DetectionResult
+        if let keypoints = out["pred_keypoints"], model.config.useGroupposeKeypoints {
+            result = postProcessKeypoints(
+                predLogits: logits,
+                predBoxes: boxes,
+                predKeypoints: keypoints,
+                originalSize: originalSize,
+                numSelect: processor.numSelect,
+                numKeypointsPerClass: model.config.numKeypointsPerClass,
+                traceAlpha: keypointTraceAlpha,
+                classNames: classNames
+            )
+            // postProcessKeypoints matches Python (threshold-less); apply the score
+            // threshold here so callers/UI see only confident detections.
+            result = filterByScore(result, threshold: scoreThreshold)
+        } else {
+            result = postProcess(
+                predLogits: logits,
+                predBoxes: boxes,
+                originalSize: originalSize,
+                scoreThreshold: scoreThreshold,
+                numSelect: processor.numSelect,
+                classNames: classNames,
+                predMasks: out["pred_masks"],
+                nmsThreshold: nmsThreshold
+            )
+        }
         if !excludeClasses.isEmpty {
             result = filterExcluded(result, excluded: excludeClasses)
         }
@@ -84,12 +105,28 @@ public enum RFDETRError: LocalizedError {
     }
 }
 
+/// Keep detections whose score is above `threshold`, preserving keypoints/precision.
+private func filterByScore(_ r: DetectionResult, threshold: Float) -> DetectionResult {
+    let keep = (0..<r.count).filter { r.scores[$0] > threshold }
+    return DetectionResult(
+        boxes: keep.map { r.boxes[$0] },
+        scores: keep.map { r.scores[$0] },
+        labels: keep.map { r.labels[$0] },
+        classNames: keep.map { r.classNames[$0] },
+        masks: r.masks.map { m in keep.map { m[$0] } },
+        keypoints: r.keypoints.map { k in keep.map { k[$0] } },
+        keypointPrecisionCholesky: r.keypointPrecisionCholesky.map { p in keep.map { p[$0] } }
+    )
+}
+
 private func filterExcluded(_ r: DetectionResult, excluded: Set<String>) -> DetectionResult {
     var boxes = [[Float]]()
     var scores = [Float]()
     var labels = [Int]()
     var names = [String]()
     var masks: [Array2D<Float>]? = r.masks == nil ? nil : []
+    var keypoints: [Array2D<Float>]? = r.keypoints == nil ? nil : []
+    var precision: [Array2D<Float>]? = r.keypointPrecisionCholesky == nil ? nil : []
 
     for i in 0..<r.count {
         if excluded.contains(r.classNames[i]) { continue }
@@ -98,6 +135,9 @@ private func filterExcluded(_ r: DetectionResult, excluded: Set<String>) -> Dete
         labels.append(r.labels[i])
         names.append(r.classNames[i])
         if let m = r.masks { masks?.append(m[i]) }
+        if let kp = r.keypoints { keypoints?.append(kp[i]) }
+        if let pr = r.keypointPrecisionCholesky { precision?.append(pr[i]) }
     }
-    return DetectionResult(boxes: boxes, scores: scores, labels: labels, classNames: names, masks: masks)
+    return DetectionResult(boxes: boxes, scores: scores, labels: labels, classNames: names,
+                           masks: masks, keypoints: keypoints, keypointPrecisionCholesky: precision)
 }

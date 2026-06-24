@@ -19,6 +19,12 @@ public final class RFDETRModel: Module {
     @ParameterInfo(key: "refpoint_embed") public var refpointEmbed: MLXArray
     @ModuleInfo(key: "segmentation_head") public var segmentationHead: SegmentationHead?
 
+    // MARK: Keypoint heads (present only when keypoints are enabled)
+    /// Second projector feeding the keypoint cross-attention (`backbone.0.cross_attn_projector`).
+    @ModuleInfo(key: "cross_attn_projector") public var keypointProjector: MultiScaleProjector?
+    /// Keypoint prediction head: MLP(kpDim → kpDim → kpDim → 8).
+    @ModuleInfo(key: "keypoint_embed") public var keypointEmbed: DecoderMLP?
+
     public let config: RFDETRConfig
 
     /// Build a full RF-DETR model.
@@ -32,7 +38,8 @@ public final class RFDETRModel: Module {
         config: RFDETRConfig,
         backbone: DINOv2Backbone,
         projector: MultiScaleProjector,
-        segmentationHead: SegmentationHead? = nil
+        segmentationHead: SegmentationHead? = nil,
+        keypointProjector: MultiScaleProjector? = nil
     ) {
         self.config = config
         let d = config.hiddenDim
@@ -56,6 +63,13 @@ public final class RFDETRModel: Module {
         // Optional segmentation head
         self._segmentationHead = ModuleInfo(wrappedValue: segmentationHead, key: "segmentation_head")
 
+        // Optional keypoint heads
+        self._keypointProjector = ModuleInfo(wrappedValue: keypointProjector, key: "cross_attn_projector")
+        let kpEmbed: DecoderMLP? = config.useGroupposeKeypoints
+            ? DecoderMLP(inputDim: config.keypointDim, hiddenDim: config.keypointDim, outputDim: 8, numLayers: 3)
+            : nil
+        self._keypointEmbed = ModuleInfo(wrappedValue: kpEmbed, key: "keypoint_embed")
+
         super.init()
     }
 
@@ -77,17 +91,37 @@ public final class RFDETRModel: Module {
         let D = memories[0].dim(-1)
         let memoryFlat = concatenated(memories.map { $0.reshaped([$0.dim(0), -1, $0.dim(-1)]) }, axis: 1)
 
-        // 3. Transformer: two-stage selection + decoder
-        let (hs, refPoints) = transformer(
-            memoryFlat,
-            spatialShapes: spatialShapes,
-            queryFeat: queryFeat,
-            refpointEmbed: refpointEmbed,
-            bboxEmbed: bboxEmbed
-        )
+        // 3. Transformer: two-stage selection + decoder (optionally with keypoints)
+        let hs: MLXArray
+        let refPoints: MLXArray
+        var keypointHs: MLXArray? = nil
+        if config.useGroupposeKeypoints, let kpProjector = keypointProjector {
+            // Dual projector: second feature map dedicated to keypoint cross-attention.
+            let kpMemories = kpProjector(features)
+            let kpMemoryFlat = concatenated(
+                kpMemories.map { $0.reshaped([$0.dim(0), -1, $0.dim(-1)]) }, axis: 1
+            )
+            let (h, ref, kp) = transformer.callWithKeypoints(
+                memoryFlat,
+                keypointMemory: kpMemoryFlat,
+                spatialShapes: spatialShapes,
+                queryFeat: queryFeat,
+                refpointEmbed: refpointEmbed,
+                bboxEmbed: bboxEmbed
+            )
+            hs = h; refPoints = ref; keypointHs = kp
+        } else {
+            (hs, refPoints) = transformer(
+                memoryFlat,
+                spatialShapes: spatialShapes,
+                queryFeat: queryFeat,
+                refpointEmbed: refpointEmbed,
+                bboxEmbed: bboxEmbed
+            )
+        }
 
         // 4. Detection heads on final decoder output
-        let predLogits = classEmbed(hs)  // (B, Q, numClasses)
+        var predLogits = classEmbed(hs)  // (B, Q, numClasses)
 
         let predBoxes: MLXArray
         if config.bboxReparam {
@@ -102,16 +136,77 @@ public final class RFDETRModel: Module {
         }
 
         var result: [String: MLXArray] = [
-            "pred_logits": predLogits,
             "pred_boxes": predBoxes,
         ]
 
-        // 5. Optional segmentation
+        // 5. Optional keypoints (decode → pad → class boost)
+        if config.useGroupposeKeypoints, let keypointHs, let keypointEmbed {
+            let delta = keypointEmbed(keypointHs)  // (B, Q, K, 8)
+            // Decode xy against the final bbox reference (ref_unsigmoid).
+            let refWH = refPoints[0..., 0..., .newAxis, 2...]   // (B, Q, 1, 2)
+            let refXY = refPoints[0..., 0..., .newAxis, 0..<2]  // (B, Q, 1, 2)
+            let kpXY = delta[0..., 0..., 0..., 0..<2] * refWH + refXY
+            let kpOther = delta[0..., 0..., 0..., 2...]
+            let compact = concatenated([kpXY, kpOther], axis: -1)  // (B, Q, K, 8)
+
+            let (padded, classBoost) = formatKeypointsAndBoost(compact)
+            result["pred_keypoints"] = padded
+            predLogits = predLogits + classBoost
+        }
+
+        result["pred_logits"] = predLogits
+
+        // 6. Optional segmentation
         if let segHead = segmentationHead {
             let predMasks = segHead(memories[0], queryFeatures: hs, imageSize: (imageH, imageW))
             result["pred_masks"] = predMasks
         }
 
         return result
+    }
+
+    /// Pad compact per-class keypoints `(B, Q, totalKeypoints, 8)` to the dense
+    /// `(B, Q, numClasses * maxKeypoints, 8)` layout and aggregate the per-keypoint
+    /// class-logit contribution (channel 7) into a `(B, Q, numClasses)` boost.
+    ///
+    /// PORT FROM: lwdetr.py `_format_keypoint_output` + `_aggregate_keypoint_class_logits`.
+    private func formatKeypointsAndBoost(_ compact: MLXArray) -> (MLXArray, MLXArray) {
+        let B = compact.dim(0); let Q = compact.dim(1)
+        let counts = config.numKeypointsPerClass
+        let numClasses = counts.count
+        let maxK = counts.max() ?? 0
+
+        var blocks: [MLXArray] = []
+        var idx = 0
+        for count in counts {
+            if count > 0 {
+                blocks.append(compact[0..., 0..., idx..<(idx + count), 0...])
+                idx += count
+            }
+            if count < maxK {
+                blocks.append(MLXArray.zeros([B, Q, maxK - count, 8], dtype: compact.dtype))
+            }
+        }
+        let padded = concatenated(blocks, axis: 2)  // (B, Q, numClasses*maxK, 8)
+
+        // Active mask (numClasses, maxK): first `count` keypoints per class are active.
+        var maskRows = [Float]()
+        maskRows.reserveCapacity(numClasses * maxK)
+        for count in counts {
+            for j in 0..<maxK { maskRows.append(j < count ? 1 : 0) }
+        }
+        let activeMask = MLXArray(maskRows).reshaped([numClasses, maxK]).asType(compact.dtype)
+
+        // class_boost = sum_k (class_contrib * active_mask) over keypoints.
+        let contrib = padded[0..., 0..., 0..., 7].reshaped([B, Q, numClasses, maxK])
+        var classBoost = (contrib * activeMask).sum(axis: -1)  // (B, Q, numClasses)
+
+        // Zero-pad to detection class count if the keypoint schema is narrower.
+        let detClasses = config.numClasses
+        if numClasses < detClasses {
+            let pad = MLXArray.zeros([B, Q, detClasses - numClasses], dtype: compact.dtype)
+            classBoost = concatenated([classBoost, pad], axis: -1)
+        }
+        return (padded, classBoost)
     }
 }
