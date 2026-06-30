@@ -70,7 +70,17 @@ def run_swift_benchmark(iterations: int, warmup: int, dtype: str) -> dict[str, A
         str(derived_data),
         "-quiet",
     ]
-    subprocess.run(build_cmd, cwd=REPO_ROOT, check=True, capture_output=True, text=True)
+    # This package depends on mlx-swift (Metal/C++). A swiftly `TOOLCHAINS` shim or a
+    # beta `DEVELOPER_DIR` selects an incompatible toolchain and the build fails — pin
+    # the stable Xcode toolchain (see CLAUDE.md). Override XCODE_DEVELOPER_DIR if Xcode
+    # lives elsewhere.
+    build_env = {k: v for k, v in os.environ.items() if k != "TOOLCHAINS"}
+    build_env["DEVELOPER_DIR"] = os.environ.get(
+        "XCODE_DEVELOPER_DIR", "/Applications/Xcode.app/Contents/Developer"
+    )
+    subprocess.run(
+        build_cmd, cwd=REPO_ROOT, check=True, capture_output=True, text=True, env=build_env
+    )
 
     executable = derived_data / "Build" / "Products" / "Debug" / "RFDETRBench"
     cmd = [
@@ -99,12 +109,13 @@ def run_swift_benchmark(iterations: int, warmup: int, dtype: str) -> dict[str, A
 def build_python_model(device: str, dtype: "torch.dtype") -> Any:
     sys.path.insert(0, str(PYTHON_REPO / "src"))
     from rfdetr.config import RFDETRSmallConfig
-    from rfdetr.main import populate_args
-    from rfdetr.models.lwdetr import build_model
+    from rfdetr.models import build_model_from_config
 
-    cfg = RFDETRSmallConfig(pretrain_weights=str(PYTHON_REPO / "rf-detr-small.pth"), device=device)
-    args = populate_args(**cfg.model_dump())
-    model = build_model(args)
+    # rf-detr >=1.8.2 removed `rfdetr.main.populate_args` and the
+    # `build_model(populate_args(**cfg))` flow in favour of the config-native
+    # `build_model_from_config(model_config)`.
+    cfg = RFDETRSmallConfig(pretrain_weights=str(PYTHON_REPO / "rf-detr-small.pth"))
+    model = build_model_from_config(cfg)
     checkpoint = torch.load(str(PYTHON_REPO / "rf-detr-small.pth"), map_location="cpu", weights_only=False)
     model.load_state_dict(checkpoint["model"], strict=False)
     model.eval().to(device).to(dtype)
@@ -113,7 +124,7 @@ def build_python_model(device: str, dtype: "torch.dtype") -> Any:
 
 def load_fixture_sample(device: str, dtype: "torch.dtype") -> Any:
     sys.path.insert(0, str(PYTHON_REPO / "src"))
-    from rfdetr.util.misc import NestedTensor
+    from rfdetr.utilities import NestedTensor  # rfdetr.util.misc deprecated (removed in v1.9)
 
     tensors = st.load_file(str(FIXTURES_DIR / "input.safetensors"))
     pixel_values = tensors["pixel_values"].to(dtype)
@@ -149,19 +160,28 @@ def run_python_benchmark(iterations: int, warmup: int, device: str, dtype_name: 
             current["backbone"] = (time.perf_counter() - start) * 1000.0
 
             start = time.perf_counter()
-            srcs = model.backbone[0].projector(raw_features)
+            _ = model.backbone[0].projector(raw_features)
             synchronize(device)
             current["projector"] = (time.perf_counter() - start) * 1000.0
 
             start = time.perf_counter()
-            features, poss = model.backbone(samples)
+            # rf-detr >=1.8.2: backbone returns (features, pos, cross_attn_features) and
+            # the transformer takes cross_attn_srcs (None for plain detection).
+            features, poss, cross_attn_features = model.backbone(samples)
             decomp_srcs = []
             masks = []
             for feat in features:
                 src, mask = feat.decompose()
                 decomp_srcs.append(src)
                 masks.append(mask)
-            hs, ref_unsigmoid, _, _ = model.transformer(decomp_srcs, masks, poss, refpoint_w, query_w)
+            cross_attn_srcs = (
+                [f.decompose()[0] for f in cross_attn_features]
+                if cross_attn_features is not None else None
+            )
+            transformer_outputs = model.transformer(
+                decomp_srcs, masks, poss, refpoint_w, query_w, cross_attn_srcs=cross_attn_srcs
+            )
+            hs, ref_unsigmoid, _, _ = transformer_outputs[:4]
             synchronize(device)
             current["transformer"] = (time.perf_counter() - start) * 1000.0
 

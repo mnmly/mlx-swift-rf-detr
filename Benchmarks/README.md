@@ -15,17 +15,21 @@ reference (`../../python/rf-detr`) on the same input image and model variant.
 
 ## Reproduction
 
-Generate the parity fixtures (one-time, requires the python rf-detr venv):
+Generate the parity fixtures (one-time, requires the python rf-detr venv). Use the
+repo's `.venv/bin/python` — **not** `uv run`, which tries to build the `trt` extra
+(tensorrt) and fails on macOS:
 
 ```bash
 cd ../../python/rf-detr
-uv run python ../../swift/mlx-swift-rf-detr/Tests/fixtures/generate_fixtures.py
+.venv/bin/python ../../swift/mlx-swift-rf-detr/Tests/fixtures/generate_fixtures.py
 ```
 
-Run the comparison from the repo root:
+Run the comparison from the swift repo root with the same venv's Python (it has
+`torch`, `safetensors`, and `rfdetr`). The driver builds the Swift bench with the
+stable Xcode toolchain itself:
 
 ```bash
-python Benchmarks/benchmark_compare.py \
+../../python/rf-detr/.venv/bin/python Benchmarks/benchmark_compare.py \
   --iterations 20 --warmup 5 \
   --swift-dtype float16 --python-dtype float16
 ```

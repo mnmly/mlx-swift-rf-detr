@@ -2,9 +2,18 @@
 """
 Generate numerical parity test fixtures for RF-DETR Small.
 
-Run from the python rf-detr project (so its src/ is importable):
+Run from the python rf-detr project (so its src/ is importable). Use the repo's
+`.venv/bin/python`, NOT `uv run` — `uv run` tries to build the `trt` extra (tensorrt)
+and fails on macOS:
     cd ../../python/rf-detr
-    uv run python /Users/mnmly/Development-local/GitHub/swift/mlx-swift-rf-detr/Tests/fixtures/generate_fixtures.py
+    .venv/bin/python /Users/mnmly/Development-local/GitHub/swift/mlx-swift-rf-detr/Tests/fixtures/generate_fixtures.py
+
+NOTE: the committed fixtures were generated against rf-detr 1.8.1. The model *build*
+path here is updated for rf-detr >=1.8.2 (`build_model_from_config`), but the diagnostic
+forward below still assumes the 1.8.1 internals (backbone returns 2 values; `NestedTensor`
+in `rfdetr.util.misc`; transformer without `cross_attn_srcs`). To regenerate against a
+newer rf-detr, apply the same updates used in `Benchmarks/benchmark_compare.py` — and note
+the resulting fixtures will differ from the committed ones (which the parity tests pin to).
 
 Outputs (saved to Tests/fixtures/):
   - weights.safetensors       : model weights in format Swift WeightLoader expects
@@ -59,13 +68,12 @@ def set_determinism(seed: int = 42):
 def build_model_with_config():
     """Build RF-DETR Small using the official config + build path."""
     from rfdetr.config import RFDETRSmallConfig
-    from rfdetr.main import populate_args
-    from rfdetr.models.lwdetr import build_model
+    from rfdetr.models import build_model_from_config
 
+    # rf-detr >=1.8.2 removed `rfdetr.main.populate_args`; build straight from the config.
     cfg = RFDETRSmallConfig()
     cfg_dict = cfg.model_dump()
-    args = populate_args(**cfg_dict)
-    model = build_model(args)
+    model = build_model_from_config(cfg)
 
     checkpoint_path = PYTHON_PROJECT / "rf-detr-small.pth"
     checkpoint = torch.load(str(checkpoint_path), map_location="cpu", weights_only=False)
