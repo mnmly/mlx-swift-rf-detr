@@ -13,7 +13,7 @@ Real-time detection transformer ([RF-DETR](https://github.com/roboflow/rf-detr),
 Add the package to your `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/mnmly/mlx-swift-rf-detr", from: "0.2.0"),
+.package(url: "https://github.com/mnmly/mlx-swift-rf-detr", from: "0.3.0"),
 ```
 
 ```swift
