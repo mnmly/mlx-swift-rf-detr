@@ -178,7 +178,14 @@ public final class Transformer: Module {
 
     /// Forward with the keypoint subnetwork active.
     ///
-    /// - Parameter keypointMemory: flattened dual-projector memory `(B, HW, D)`.
+    /// - Parameters:
+    ///   - memory: flattened encoder/projector memory `(B, HW, D)` for detection cross-attention.
+    ///   - keypointMemory: flattened dual-projector memory `(B, HW, D)`.
+    ///   - spatialShapes: per-level feature-map `(height, width)` sizes.
+    ///   - queryFeat: learned query features `(numQueries, D)`.
+    ///   - refpointEmbed: learned reference-point embeddings `(numQueries, 4)`.
+    ///   - bboxEmbed: shared box-regression head used for iterative refinement.
+    ///   - perLayer: optional per-layer callback `(layerIndex, hs, refPoints)` for diagnostics.
     /// - Returns: `(hs, refUnsig, keypointHs)` for the final decoder layer.
     public func callWithKeypoints(
         _ memory: MLXArray,

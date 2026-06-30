@@ -1,12 +1,13 @@
 # ``MLXRFDETR``
 
 Real-time RF-DETR object detection, instance segmentation, and keypoint
-(pose) estimation on Apple Silicon, ported to [mlx-swift](https://github.com/ml-explore/mlx-swift).
+(pose) estimation on Apple Silicon, ported to MLX.
 
 ## Overview
 
 `MLXRFDETR` is a pure-Swift, inference-only port of
-[RF-DETR](https://github.com/roboflow/rf-detr) (ICLR 2026). It runs a
+[RF-DETR](https://github.com/roboflow/rf-detr) (ICLR 2026) onto
+[mlx-swift](https://github.com/ml-explore/mlx-swift). It runs a
 DINOv2-windowed backbone, a multi-scale projector, and an RF-DETR decoder
 with deformable cross-attention — no PyTorch at inference time. Three task
 families are supported, selected automatically from the model's

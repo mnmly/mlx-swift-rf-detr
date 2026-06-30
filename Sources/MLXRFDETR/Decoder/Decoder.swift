@@ -81,8 +81,14 @@ public final class Decoder: Module {
     /// Decoder forward with the keypoint subnetwork active.
     ///
     /// - Parameters:
-    ///   - tgtKeypoints: initial keypoint queries `(B, Q, K, kpDim)` from the initializer.
+    ///   - tgt: initial detection queries `(B, Q, D)`.
+    ///   - memory: detection cross-attention memory `(B, HW, D)`.
     ///   - keypointMemory: dual-projector memory for keypoint cross-attention.
+    ///   - tgtKeypoints: initial keypoint queries `(B, Q, K, kpDim)` from the initializer.
+    ///   - referencePointsUnsigmoid: unsigmoided box reference points `(B, Q, 4)`.
+    ///   - spatialShapes: per-level feature-map `(height, width)` sizes.
+    ///   - bboxEmbed: shared box-regression head used for iterative refinement.
+    ///   - perLayer: optional per-layer callback `(layerIndex, hs, refPoints)` for diagnostics.
     /// - Returns: `(hs, refCoords, keypointHs)` for the final decoder layer.
     public func callWithKeypoints(
         _ tgt: MLXArray,

@@ -34,6 +34,7 @@ public final class RFDETRModel: Module {
     ///   - backbone: DINOv2 backbone (pre-configured)
     ///   - projector: multi-scale projector (inChannels must match backbone output)
     ///   - segmentationHead: optional segmentation head (nil = detection only)
+    ///   - keypointProjector: optional second projector feeding the keypoint cross-attention (nil = no keypoints)
     public init(
         config: RFDETRConfig,
         backbone: DINOv2Backbone,
@@ -87,8 +88,6 @@ public final class RFDETRModel: Module {
         // 2. Projector: produce one feature map per scale
         let memories = projector(features)  // [(B, hi, wi, D)]
         let spatialShapes = memories.map { ($0.dim(1), $0.dim(2)) }
-        let B = memories[0].dim(0)
-        let D = memories[0].dim(-1)
         let memoryFlat = concatenated(memories.map { $0.reshaped([$0.dim(0), -1, $0.dim(-1)]) }, axis: 1)
 
         // 3. Transformer: two-stage selection + decoder (optionally with keypoints)

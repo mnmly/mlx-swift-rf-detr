@@ -125,9 +125,14 @@ public final class DecoderLayer: Module {
     /// Detection + keypoint forward.
     ///
     /// - Parameters:
+    ///   - tgt: detection queries `(B, N, D)`.
+    ///   - keypointTgt: keypoint queries `(B, N, K, kpDim)`.
+    ///   - memory: detection cross-attention memory `(B, HW, D)`.
+    ///   - keypointMemory: dual-projector memory used by the keypoint cross-attention.
     ///   - referencePoints: bbox reference points `(B, N, nLvl, 4)`; reused for the
     ///     keypoint cross-attention (broadcast across keypoints).
-    ///   - keypointMemory: dual-projector memory used by the keypoint cross-attention.
+    ///   - spatialShapes: per-level feature-map `(height, width)` sizes.
+    ///   - queryPos: detection query positional embeddings `(B, N, D)`.
     ///   - keypointPos: keypoint positional embeddings `(B, N, K, kpDim)`.
     /// - Returns: updated `(tgt, keypointTgt)`.
     public func forwardWithKeypoints(
