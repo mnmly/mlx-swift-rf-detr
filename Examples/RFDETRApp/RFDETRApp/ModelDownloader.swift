@@ -80,7 +80,17 @@ enum ModelFetcher {
         let files = model.files
         for (index, file) in files.enumerated() {
             let isLast = index == files.count - 1   // safetensors dominates size → drives the bar
-            let downloader = FileDownloader(destination: dir.appendingPathComponent(file)) { frac in
+            let dest = dir.appendingPathComponent(file)
+
+            // Skip files already present. The destination only ever holds a complete
+            // file — FileDownloader moves the temp file into place atomically once the
+            // download finishes — so a non-empty file here is a finished download.
+            if let size = try? fm.attributesOfItem(atPath: dest.path)[.size] as? Int, size > 0 {
+                if isLast { onProgress(1.0) }
+                continue
+            }
+
+            let downloader = FileDownloader(destination: dest) { frac in
                 onProgress(isLast ? frac : 0.0)
             }
             try await downloader.run(from: model.url(for: file))
