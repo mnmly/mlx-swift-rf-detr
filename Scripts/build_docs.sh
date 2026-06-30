@@ -44,6 +44,11 @@ REPO_URL="${REPO_URL:-https://github.com/mnmly/mlx-swift-rf-detr}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 OUTPUT_DIR="${OUTPUT_DIR:-docs}"
 
+# swift-docc-plugin is gated behind an env var in Package.swift so normal builds and
+# downstream consumers don't resolve it. Enable it for both `generate-documentation`
+# and `preview-documentation`.
+export BUILD_DOC=1
+
 # Toolchain selection. The experimental Markdown flags require a recent swift-docc
 # (newer than the one bundled with current Xcode). Let callers point at one without
 # prefixing every invocation, and fall back to a swiftly selection if present.
