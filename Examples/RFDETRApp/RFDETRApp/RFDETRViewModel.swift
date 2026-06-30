@@ -22,28 +22,43 @@ final class RFDETRViewModel {
     var modelPath: String = ""
     private var loadedURL: URL?
 
+    /// Non-nil while a model download is in flight; 0...1 fraction of the (dominant) weights file.
+    var downloadProgress: Double?
+    /// Id of the model currently downloading, for the status label.
+    var downloadingName: String?
+
     func loadModel(from directory: URL) async {
         isLoading = true
         errorMessage = nil
         modelPath = directory.path
         defer { isLoading = false }
 
+        // Sandbox: a bookmark-resolved URL needs its scope started for the read.
+        // Panel URLs and download dirs (covered by an enclosing scope held by the
+        // caller) return false here but stay readable, so bracketing is always safe.
+        let accessing = directory.startAccessingSecurityScopedResource()
+        defer { if accessing { directory.stopAccessingSecurityScopedResource() } }
+
         do {
-            let (model, processor, detected) = try await Task.detached(priority: .userInitiated) {
-                try RFDETR.load(directory: directory, dtype: .float16)
+            // RFDETR.load is synchronous and heavy (weights I/O + graph build), so run
+            // it off the main actor. Only a Sendable tuple crosses back — the
+            // non-Sendable model/processor never leave the detached task.
+            let (loaded, detected, res, hasSeg) = try await Task.detached(priority: .userInitiated) {
+                let (model, processor, detected) = try RFDETR.load(directory: directory, dtype: .float16)
+                let predictor = RFDETRPipeline(
+                    model: model, processor: processor,
+                    scoreThreshold: 0.5, nmsThreshold: 0.5
+                )
+                return (predictor, detected, processor.resolution, model.segmentationHead != nil)
             }.value
 
-            self.predictor = RFDETRPipeline(
-                model: model,
-                processor: processor,
-                scoreThreshold: 0.5,
-                nmsThreshold: 0.5
-            )
+            self.predictor = loaded
             self.variant = detected
-            self.resolution = processor.resolution
-            self.hasSegmentation = (model.segmentationHead != nil)
+            self.resolution = res
+            self.hasSegmentation = hasSeg
             self.isLoaded = true
             self.loadedURL = directory
+            ModelBookmark.store(directory)
         } catch {
             self.errorMessage = error.localizedDescription
             self.predictor = nil
@@ -52,8 +67,42 @@ final class RFDETRViewModel {
     }
 
     func reloadIfNeeded() async {
-        guard let url = loadedURL, !isLoading else { return }
+        // Prefer the security-scoped bookmark so reload works even after the original
+        // open-panel/download scope has been released.
+        guard !isLoading, let url = ModelBookmark.resolve() ?? loadedURL else { return }
         await loadModel(from: url)
+    }
+
+    /// Re-open the most recently loaded model from its security-scoped bookmark, if one
+    /// was persisted. Call once at launch; no-op when nothing is bookmarked.
+    func restoreLastModel() async {
+        guard !isLoaded, !isLoading, let url = ModelBookmark.resolve() else { return }
+        await loadModel(from: url)
+    }
+
+    /// Download a catalog model's three files into the user-chosen `parent` folder, then load it.
+    func downloadAndLoad(_ model: RemoteModel, intoParent parent: URL) async {
+        downloadingName = model.id
+        downloadProgress = 0
+        errorMessage = nil
+
+        // Hold the user-granted folder scope across BOTH the download (write) and the
+        // subsequent load + bookmark of the model subdirectory.
+        let scoped = parent.startAccessingSecurityScopedResource()
+        defer { if scoped { parent.stopAccessingSecurityScopedResource() } }
+
+        do {
+            let dir = try await ModelFetcher.fetch(model, intoParent: parent) { frac in
+                Task { @MainActor in self.downloadProgress = frac }
+            }
+            downloadingName = nil
+            downloadProgress = nil
+            await loadModel(from: dir)
+        } catch {
+            errorMessage = "Download failed: \(error.localizedDescription)"
+            downloadingName = nil
+            downloadProgress = nil
+        }
     }
 
     /// Run inference on a CGImage off the main actor.

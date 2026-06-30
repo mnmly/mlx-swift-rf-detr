@@ -42,6 +42,7 @@ struct ContentView: View {
                     .tag(Tab.camera)
             }
         }
+        .task { await model.restoreLastModel() }
     }
 
     private var modelBar: some View {
@@ -49,8 +50,21 @@ struct ContentView: View {
             Text("Model:").font(.headline)
 
             Button("Select Model Directory\u{2026}") { selectModelDirectory() }
+                .disabled(model.downloadingName != nil)
 
-            if model.isLoading {
+            Menu("Download Model\u{2026}") {
+                ForEach(ModelCatalog.all) { m in
+                    Button("\(m.id) — \(m.subtitle)") { startDownload(m) }
+                }
+            }
+            .fixedSize()
+            .disabled(model.isLoading || model.downloadingName != nil)
+
+            if let name = model.downloadingName, let p = model.downloadProgress {
+                ProgressView(value: p).frame(width: 110)
+                Text("\(name) \(Int(p * 100))%")
+                    .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+            } else if model.isLoading {
                 ProgressView().controlSize(.small)
             }
 
@@ -88,5 +102,18 @@ struct ContentView: View {
         panel.canChooseFiles = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
         Task { await model.loadModel(from: url) }
+    }
+
+    private func startDownload(_ remote: RemoteModel) {
+        let panel = NSOpenPanel()
+        panel.title = "Choose where to download \(remote.id)"
+        panel.message = "Pick a folder; the model is saved as rfdetr-\(remote.id)-mlx"
+        panel.prompt = "Download Here"
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task { await model.downloadAndLoad(remote, intoParent: url) }
     }
 }
