@@ -25,13 +25,31 @@ Add the package to your `Package.swift`:
 )
 ```
 
+## Pre-converted weights
+
+The quickest path is to download a ready-made MLX directory from Hugging Face and point the loader at it — no PyTorch, no conversion step:
+
+| Variant | Repo |
+|---------|------|
+| `base` | [`mlx-community/rfdetr-base-fp32`](https://huggingface.co/mlx-community/rfdetr-base-fp32) |
+| `small` | [`mnmly/rfdetr-small-mlx-fp32`](https://huggingface.co/mnmly/rfdetr-small-mlx-fp32) |
+| `large-2026` | [`mnmly/rfdetr-large-2026-mlx-fp32`](https://huggingface.co/mnmly/rfdetr-large-2026-mlx-fp32) |
+| `seg-small` / `seg-large` / `seg-xlarge` / `seg-2xlarge` | [`mlx-community/rfdetr-seg-*-fp32`](https://huggingface.co/mlx-community?search=rfdetr) |
+| `keypoint-preview` | [`mnmly/rfdetr-keypoint-preview-mlx-fp32`](https://huggingface.co/mnmly/rfdetr-keypoint-preview-mlx-fp32) |
+
+```bash
+hf download mnmly/rfdetr-large-2026-mlx-fp32 --local-dir rfdetr-large-2026-mlx-fp32
+```
+
+The [example app](Examples/RFDETRApp) has a **Download Model…** button that fetches any of these directly. To produce a variant that isn't hosted, convert it yourself (below).
+
 ## Convert weights
 
 The reference PyTorch model lives at [roboflow/rf-detr](https://github.com/roboflow/rf-detr); this port tracks upstream **[`1.8.1`](https://github.com/roboflow/rf-detr/releases/tag/1.8.1)** (detection + segmentation deliverables, plus the `keypoint-preview` GroupPose model). The Swift loader reads a converted directory containing `config.json`, `preprocessor_config.json`, and `model.safetensors` (no PyTorch dependency at inference time).
 
-Available variants: `base`, `small`, `large`, `seg-small`, `seg-large`, `seg-xlarge`, `seg-2xlarge`, `keypoint-preview`.
+Available variants: `base`, `small`, `large`, `large-2026`, `seg-small`, `seg-large`, `seg-xlarge`, `seg-2xlarge`, `keypoint-preview`.
 
-Any converter that emits the above three files works; the [mlx-vlm rfdetr converter](https://github.com/Blaizzy/mlx-vlm/tree/main/mlx_vlm/models/rfdetr) is one option for detection/segmentation. For the `keypoint-preview` model, use [`Scripts/convert_keypoint.py`](Scripts/convert_keypoint.py) (downloads the upstream checkpoint and writes the converted directory).
+Any converter that emits the above three files works. For detection (`base`, `small`, `large`, `large-2026`) use [`Scripts/convert_detection.py`](Scripts/convert_detection.py) and for the `keypoint-preview` model use [`Scripts/convert_keypoint.py`](Scripts/convert_keypoint.py) — both download the upstream checkpoint and write the converted directory. For segmentation, the [mlx-vlm rfdetr converter](https://github.com/Blaizzy/mlx-vlm/tree/main/mlx_vlm/models/rfdetr) is one option.
 
 ## Quick start
 
@@ -68,7 +86,8 @@ predictor.excludeClasses = ["couch", "potted plant"]
 |---------|------|-----------|
 | `base` | Detection | 560 |
 | `small` | Detection | 512 |
-| `large` | Detection | 560 |
+| `large` | Detection (pre-2026 checkpoint) | 560 |
+| `large-2026` | Detection | 704 |
 | `seg-small` | Detection + masks | 384 |
 | `seg-large` | Detection + masks | 504 |
 | `seg-xlarge` | Detection + masks | 624 |

@@ -44,6 +44,36 @@ final class LoaderTests: XCTestCase {
         XCTAssertNil(out["pred_masks"])
     }
 
+    func testLoadAndForwardBase() throws {
+        guard let (model, processor, variant) = try loadIfAvailable("rfdetr-base-mlx") else { return }
+        XCTAssertEqual(variant, .base)
+        XCTAssertEqual(processor.resolution, 560)
+
+        let res = processor.resolution
+        let pixels = MLXArray.zeros([1, res, res, 3])
+        let out = model(pixels)
+        eval(out["pred_logits"]!, out["pred_boxes"]!)
+
+        XCTAssertEqual(out["pred_logits"]?.shape, [1, 300, 91])
+        XCTAssertEqual(out["pred_boxes"]?.shape, [1, 300, 4])
+        XCTAssertNil(out["pred_masks"])
+    }
+
+    func testLoadAndForwardLarge2026() throws {
+        guard let (model, processor, variant) = try loadIfAvailable("rfdetr-large-2026-mlx") else { return }
+        XCTAssertEqual(variant, .large2026)
+        XCTAssertEqual(processor.resolution, 704)
+
+        let res = processor.resolution
+        let pixels = MLXArray.zeros([1, res, res, 3])
+        let out = model(pixels)
+        eval(out["pred_logits"]!, out["pred_boxes"]!)
+
+        XCTAssertEqual(out["pred_logits"]?.shape, [1, 300, 91])
+        XCTAssertEqual(out["pred_boxes"]?.shape, [1, 300, 4])
+        XCTAssertNil(out["pred_masks"])
+    }
+
     func testLoadAndForwardSegSmall() throws {
         guard let (model, processor, variant) = try loadIfAvailable("rfdetr-seg-small-mlx") else { return }
         XCTAssertEqual(variant, .segSmall)

@@ -10,7 +10,10 @@ import Foundation
 public enum RFDETRVariant: String, CaseIterable, Sendable {
     case base
     case small
+    /// Pre-2026 large checkpoint (`rf-detr-large.pth`): 560 resolution, `dinov2_windowed_base` backbone, hidden dim 384.
     case large
+    /// Current 2026 large checkpoint (`rf-detr-large-2026.pth`): 704 resolution, small backbone, 4 decoder layers — a different architecture from `large`.
+    case large2026 = "large-2026"
     case segSmall = "seg-small"
     case segLarge = "seg-large"
     case segXLarge = "seg-xlarge"
@@ -32,6 +35,7 @@ public enum RFDETRVariant: String, CaseIterable, Sendable {
         case (560, 3, false, 300, 256): return .base
         case (512, 3, false, 300, _):   return .small
         case (560, 3, false, 300, 384): return .large
+        case (704, 4, false, 300, 256): return .large2026
         case (576, 4, false, 100, 256): return .keypointPreview
         case (384, 4, true,  100, _):   return .segSmall
         case (504, 5, true,  300, _):   return .segLarge
