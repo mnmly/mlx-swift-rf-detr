@@ -80,6 +80,9 @@ struct ContentView: View {
                 if model.hasSegmentation {
                     Text("seg").font(.caption).foregroundStyle(.secondary)
                 }
+                if model.hasKeypoints {
+                    Text("pose").font(.caption).foregroundStyle(.secondary)
+                }
             }
 
             if let err = model.errorMessage {

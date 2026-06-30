@@ -10,6 +10,7 @@ struct ImageDemoView: View {
     @State private var result: DetectionResult?
     @State private var isRunning = false
     @State private var scoreThreshold: Float = 0.5
+    @State private var oksThreshold: Float = 0.7
     @State private var errorMessage: String?
 
     var body: some View {
@@ -29,6 +30,12 @@ struct ImageDemoView: View {
             if sourceImage != nil {
                 Text("Score threshold: \(scoreThreshold, specifier: "%.2f")").font(.caption)
                 Slider(value: $scoreThreshold, in: 0.01...1.0, step: 0.01)
+
+                if model.hasKeypoints {
+                    Text("Pose dedup (OKS): \(oksThreshold >= 1.0 ? "off" : String(format: "%.2f", oksThreshold))")
+                        .font(.caption)
+                    Slider(value: $oksThreshold, in: 0.30...1.0, step: 0.05)
+                }
 
                 Button("Run") { run() }
                     .disabled(!model.isLoaded || isRunning)
@@ -87,7 +94,7 @@ struct ImageDemoView: View {
         errorMessage = nil
         Task {
             do {
-                let r = try await model.predictAsync(sourceImage, scoreThreshold: scoreThreshold)
+                let r = try await model.predictAsync(sourceImage, scoreThreshold: scoreThreshold, oksThreshold: oksThreshold)
                 await MainActor.run {
                     result = r
                     isRunning = false

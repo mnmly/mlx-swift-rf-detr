@@ -11,6 +11,7 @@ struct VideoDemoView: View {
     @State private var currentFrameIndex: Int = 0
     @State private var isProcessing = false
     @State private var scoreThreshold: Float = 0.5
+    @State private var oksThreshold: Float = 0.7
     @State private var errorMessage: String?
     @State private var isPlaying = false
     @State private var playTimer: Timer?
@@ -37,6 +38,12 @@ struct VideoDemoView: View {
             if sourceURL != nil {
                 Text("Score threshold: \(scoreThreshold, specifier: "%.2f")").font(.caption)
                 Slider(value: $scoreThreshold, in: 0.01...1.0, step: 0.01)
+
+                if model.hasKeypoints {
+                    Text("Pose dedup (OKS): \(oksThreshold >= 1.0 ? "off" : String(format: "%.2f", oksThreshold))")
+                        .font(.caption)
+                    Slider(value: $oksThreshold, in: 0.30...1.0, step: 0.05)
+                }
 
                 Picker("Frame stride", selection: $vidStride) {
                     ForEach([1, 2, 3, 5, 10], id: \.self) { s in
@@ -137,6 +144,7 @@ struct VideoDemoView: View {
 
         let stride = vidStride
         let threshold = scoreThreshold
+        let oks = oksThreshold
 
         processingTask = Task {
             do {
@@ -150,7 +158,7 @@ struct VideoDemoView: View {
 
                 while let frame = source.nextFrame() {
                     if Task.isCancelled { cancelled = true; break }
-                    let result = try await model.predictAsync(frame, scoreThreshold: threshold)
+                    let result = try await model.predictAsync(frame, scoreThreshold: threshold, oksThreshold: oks)
                     collected.append(ProcessedFrame(image: frame, result: result))
                     idx += 1
 

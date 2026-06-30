@@ -56,6 +56,9 @@ or ``postProcessKeypoints(predLogits:predBoxes:predKeypoints:originalSize:numSel
 - ``postProcess(predLogits:predBoxes:originalSize:scoreThreshold:numSelect:classNames:predMasks:nmsThreshold:)``
 - ``postProcessKeypoints(predLogits:predBoxes:predKeypoints:originalSize:numSelect:numKeypointsPerClass:traceAlpha:classNames:)``
 - ``nmsPerClass(boxes:scores:classes:iouThreshold:)``
+- ``oksNmsKeep(boxes:scores:labels:keypoints:numKeypointsPerClass:oksThreshold:sigmas:)``
+- ``objectKeypointSimilarity(_:areaA:_:areaB:count:sigmas:)``
+- ``COCO_KEYPOINT_SIGMAS``
 - ``boxCxcywhToXyxy(_:)``
 - ``Array2D``
 

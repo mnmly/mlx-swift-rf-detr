@@ -15,6 +15,8 @@ final class RFDETRViewModel {
     var variant: RFDETRVariant?
     var resolution: Int = 0
     var hasSegmentation: Bool = false
+    /// True when the loaded model is a GroupPose keypoint model (enables the pose-dedup control).
+    var hasKeypoints: Bool = false
 
     var isLoaded = false
     var isLoading = false
@@ -43,19 +45,21 @@ final class RFDETRViewModel {
             // RFDETR.load is synchronous and heavy (weights I/O + graph build), so run
             // it off the main actor. Only a Sendable tuple crosses back — the
             // non-Sendable model/processor never leave the detached task.
-            let (loaded, detected, res, hasSeg) = try await Task.detached(priority: .userInitiated) {
+            let (loaded, detected, res, hasSeg, hasKp) = try await Task.detached(priority: .userInitiated) {
                 let (model, processor, detected) = try RFDETR.load(directory: directory, dtype: .float16)
                 let predictor = RFDETRPipeline(
                     model: model, processor: processor,
                     scoreThreshold: 0.5, nmsThreshold: 0.5
                 )
-                return (predictor, detected, processor.resolution, model.segmentationHead != nil)
+                return (predictor, detected, processor.resolution,
+                        model.segmentationHead != nil, model.config.useGroupposeKeypoints)
             }.value
 
             self.predictor = loaded
             self.variant = detected
             self.resolution = res
             self.hasSegmentation = hasSeg
+            self.hasKeypoints = hasKp
             self.isLoaded = true
             self.loadedURL = directory
             ModelBookmark.store(directory)
@@ -106,10 +110,16 @@ final class RFDETRViewModel {
     }
 
     /// Run inference on a CGImage off the main actor.
-    nonisolated func predictAsync(_ cgImage: CGImage, scoreThreshold: Float) async throws -> DetectionResult {
+    ///
+    /// - Parameter oksThreshold: Pose-NMS OKS threshold for GroupPose models
+    ///   (`1.0` disables dedup); ignored by detection/segmentation models.
+    nonisolated func predictAsync(
+        _ cgImage: CGImage, scoreThreshold: Float, oksThreshold: Float = 0.7
+    ) async throws -> DetectionResult {
         guard let predictor = await self.predictor else { throw RFDETRViewModelError.modelNotLoaded }
         return try await Task.detached(priority: .userInitiated) {
             predictor.scoreThreshold = scoreThreshold
+            predictor.keypointOksThreshold = oksThreshold
             return try predictor.predict(cgImage: cgImage)
         }.value
     }

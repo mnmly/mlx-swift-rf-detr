@@ -10,6 +10,7 @@ struct CameraDemoView: View {
     @State private var currentFrame: CGImage?
     @State private var result: DetectionResult?
     @State private var scoreThreshold: Float = 0.5
+    @State private var oksThreshold: Float = 0.7
     @State private var isRunning = false
     @State private var errorMessage: String?
     @State private var deviceID: String?
@@ -46,6 +47,12 @@ struct CameraDemoView: View {
 
             Text("Score threshold: \(scoreThreshold, specifier: "%.2f")").font(.caption)
             Slider(value: $scoreThreshold, in: 0.01...1.0, step: 0.01)
+
+            if model.hasKeypoints {
+                Text("Pose dedup (OKS): \(oksThreshold >= 1.0 ? "off" : String(format: "%.2f", oksThreshold))")
+                    .font(.caption)
+                Slider(value: $oksThreshold, in: 0.30...1.0, step: 0.05)
+            }
 
             HStack {
                 Button(isRunning ? "Stop" : "Start") {
@@ -144,7 +151,7 @@ struct CameraDemoView: View {
 
         Task {
             do {
-                let r = try await model.predictAsync(cg, scoreThreshold: scoreThreshold)
+                let r = try await model.predictAsync(cg, scoreThreshold: scoreThreshold, oksThreshold: oksThreshold)
                 result = r
             } catch {
                 errorMessage = error.localizedDescription

@@ -429,6 +429,125 @@ public func postProcessKeypoints(
     )
 }
 
+// MARK: - OKS pose NMS
+
+/// Per-keypoint OKS falloff constants (`σ`) for the 17 COCO person keypoints,
+/// in skeleton order: nose, left/right eye, left/right ear, left/right shoulder,
+/// left/right elbow, left/right wrist, left/right hip, left/right knee,
+/// left/right ankle.
+///
+/// These are the standard COCO `sigmas` used by ``objectKeypointSimilarity(_:areaA:_:areaB:count:sigmas:)``.
+public let COCO_KEYPOINT_SIGMAS: [Float] = [
+    0.026, 0.025, 0.025, 0.035, 0.035, 0.079, 0.079, 0.072, 0.072,
+    0.062, 0.062, 0.107, 0.107, 0.087, 0.087, 0.089, 0.089,
+]
+
+/// Object Keypoint Similarity (OKS) between two pose keypoint sets, in `[0, 1]`
+/// (`1` = identical).
+///
+/// Symmetric COCO-style OKS using the average of the two object areas as the
+/// scale (matches MMPose `oks_iou`, which compares two detections rather than a
+/// detection against ground truth). For each of the first `count` keypoints,
+/// contributes `exp(-d² / ((2σᵢ)² · s · 2))` where `d` is the inter-pose pixel
+/// distance, `σᵢ` the per-keypoint falloff, and `s` the average object area; the
+/// result is the mean over those keypoints. All `count` keypoints are included
+/// regardless of confidence (duplicate detections cluster even on low-confidence
+/// joints).
+///
+/// - Parameters:
+///   - a: First pose, `(rows, 3)` with columns `(x_px, y_px, confidence)`.
+///   - areaA: Object area of the first pose in px² (e.g. its bounding-box area).
+///   - b: Second pose, same layout as `a`.
+///   - areaB: Object area of the second pose in px².
+///   - count: Number of active keypoints to compare (e.g. `17` for COCO person).
+///   - sigmas: Per-keypoint falloff constants; falls back to a uniform `0.05`
+///     for any index beyond the supplied list. Defaults to ``COCO_KEYPOINT_SIGMAS``.
+public func objectKeypointSimilarity(
+    _ a: Array2D<Float>,
+    areaA: Float,
+    _ b: Array2D<Float>,
+    areaB: Float,
+    count: Int,
+    sigmas: [Float] = COCO_KEYPOINT_SIGMAS
+) -> Float {
+    guard count > 0 else { return 0 }
+    let scale = (areaA + areaB) / 2 + 1e-6  // object scale (avg box area, px²)
+    var sum: Float = 0
+    for i in 0..<count {
+        let sigma = i < sigmas.count ? sigmas[i] : 0.05
+        let varI = (2 * sigma) * (2 * sigma)
+        let dx = a[i, 0] - b[i, 0]
+        let dy = a[i, 1] - b[i, 1]
+        let e = (dx * dx + dy * dy) / (varI * scale * 2)
+        sum += exp(-e)
+    }
+    return sum / Float(count)
+}
+
+/// Greedy OKS-based pose Non-Maximum Suppression (per class).
+///
+/// RF-DETR's GroupPose head is a set predictor, so several decoder queries can
+/// lock onto the same person and emit overlapping or slightly-offset skeletons.
+/// The keypoint post-process (``postProcessKeypoints(predLogits:predBoxes:predKeypoints:originalSize:numSelect:numKeypointsPerClass:traceAlpha:classNames:)``)
+/// applies no NMS, so call this to deduplicate: within each class it keeps the
+/// highest-scoring detection and suppresses any remaining detection whose
+/// ``objectKeypointSimilarity(_:areaA:_:areaB:count:sigmas:)`` with a kept one is
+/// `≥ oksThreshold`. Object scale comes from each detection's bounding-box area.
+///
+/// Detections of a class with no keypoints (`numKeypointsPerClass[label] == 0`)
+/// are passed through unchanged.
+///
+/// - Parameters:
+///   - boxes: `(N, 4)` xyxy pixel boxes (used for object scale).
+///   - scores: `(N,)` detection scores.
+///   - labels: `(N,)` class indices.
+///   - keypoints: `(N,)` per-detection keypoints, each `(maxK, 3)` as `(x_px, y_px, confidence)`.
+///   - numKeypointsPerClass: Per-class active keypoint counts (e.g. `[0, 17]`).
+///   - oksThreshold: Suppress detections with OKS `≥` this value (`≥ 1.0` keeps all).
+///   - sigmas: Per-keypoint falloff constants. Defaults to ``COCO_KEYPOINT_SIGMAS``.
+/// - Returns: Indices to keep, sorted by score descending.
+public func oksNmsKeep(
+    boxes: [[Float]],
+    scores: [Float],
+    labels: [Int],
+    keypoints: [Array2D<Float>],
+    numKeypointsPerClass: [Int],
+    oksThreshold: Float,
+    sigmas: [Float] = COCO_KEYPOINT_SIGMAS
+) -> [Int] {
+    func area(_ box: [Float]) -> Float {
+        max(0, box[2] - box[0]) * max(0, box[3] - box[1])
+    }
+
+    var keep: [Int] = []
+    for cls in Set(labels) {
+        let indices = labels.enumerated().filter { $0.1 == cls }.map { $0.0 }
+        let activeCount = cls < numKeypointsPerClass.count ? numKeypointsPerClass[cls] : 0
+
+        // No keypoints to compare on — nothing to deduplicate, keep all.
+        if activeCount == 0 {
+            keep.append(contentsOf: indices)
+            continue
+        }
+
+        // Greedy suppression, highest score first.
+        var order = indices.sorted { scores[$0] > scores[$1] }
+        while !order.isEmpty {
+            let cur = order.removeFirst()
+            keep.append(cur)
+            order = order.filter { other in
+                objectKeypointSimilarity(
+                    keypoints[cur], areaA: area(boxes[cur]),
+                    keypoints[other], areaB: area(boxes[other]),
+                    count: activeCount, sigmas: sigmas
+                ) < oksThreshold
+            }
+        }
+    }
+
+    return keep.sorted { scores[$0] > scores[$1] }
+}
+
 // MARK: - COCO class names
 
 public let COCO_CLASSES: [String] = [

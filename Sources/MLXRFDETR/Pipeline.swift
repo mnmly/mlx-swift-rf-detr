@@ -14,6 +14,11 @@ public final class RFDETRPipeline {
     public var excludeClasses: Set<String>
     /// Keypoint score-fusion weight (GroupPose models only).
     public var keypointTraceAlpha: Float
+    /// OKS threshold for pose-NMS deduplication of GroupPose detections. The
+    /// keypoint head can emit several overlapping/offset skeletons for one person;
+    /// detections of the same class whose Object Keypoint Similarity is `≥` this
+    /// value are suppressed (lower score removed). Set `≥ 1.0` to disable.
+    public var keypointOksThreshold: Float
 
     public init(
         model: RFDETRModel,
@@ -22,7 +27,8 @@ public final class RFDETRPipeline {
         nmsThreshold: Float = 0.5,
         classNames: [String]? = nil,
         excludeClasses: [String] = [],
-        keypointTraceAlpha: Float = 0.2
+        keypointTraceAlpha: Float = 0.2,
+        keypointOksThreshold: Float = 0.7
     ) {
         self.model = model
         self.processor = processor
@@ -31,6 +37,7 @@ public final class RFDETRPipeline {
         self.classNames = classNames
         self.excludeClasses = Set(excludeClasses)
         self.keypointTraceAlpha = keypointTraceAlpha
+        self.keypointOksThreshold = keypointOksThreshold
     }
 
     /// Run inference on a pre-normalized `(1, H, W, 3)` tensor.
@@ -57,6 +64,19 @@ public final class RFDETRPipeline {
             // postProcessKeypoints matches Python (threshold-less); apply the score
             // threshold here so callers/UI see only confident detections.
             result = filterByScore(result, threshold: scoreThreshold)
+            // Deduplicate the overlapping/offset skeletons the set-prediction head
+            // can emit for one person (the keypoint path applies no NMS upstream).
+            if keypointOksThreshold < 1.0, let kps = result.keypoints, !kps.isEmpty {
+                let keep = oksNmsKeep(
+                    boxes: result.boxes,
+                    scores: result.scores,
+                    labels: result.labels,
+                    keypoints: kps,
+                    numKeypointsPerClass: model.config.numKeypointsPerClass,
+                    oksThreshold: keypointOksThreshold
+                )
+                result = subset(result, keep)
+            }
         } else {
             result = postProcess(
                 predLogits: logits,
@@ -105,10 +125,9 @@ public enum RFDETRError: LocalizedError {
     }
 }
 
-/// Keep detections whose score is above `threshold`, preserving keypoints/precision.
-private func filterByScore(_ r: DetectionResult, threshold: Float) -> DetectionResult {
-    let keep = (0..<r.count).filter { r.scores[$0] > threshold }
-    return DetectionResult(
+/// Reindex a result by `keep`, preserving every optional per-detection field.
+private func subset(_ r: DetectionResult, _ keep: [Int]) -> DetectionResult {
+    DetectionResult(
         boxes: keep.map { r.boxes[$0] },
         scores: keep.map { r.scores[$0] },
         labels: keep.map { r.labels[$0] },
@@ -117,6 +136,11 @@ private func filterByScore(_ r: DetectionResult, threshold: Float) -> DetectionR
         keypoints: r.keypoints.map { k in keep.map { k[$0] } },
         keypointPrecisionCholesky: r.keypointPrecisionCholesky.map { p in keep.map { p[$0] } }
     )
+}
+
+/// Keep detections whose score is above `threshold`, preserving keypoints/precision.
+private func filterByScore(_ r: DetectionResult, threshold: Float) -> DetectionResult {
+    subset(r, (0..<r.count).filter { r.scores[$0] > threshold })
 }
 
 private func filterExcluded(_ r: DetectionResult, excluded: Set<String>) -> DetectionResult {
