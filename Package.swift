@@ -17,7 +17,7 @@ let package = Package(
         .executable(name: "RFDETRBench", targets: ["RFDETRBench"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/ml-explore/mlx-swift", .upToNextMinor(from: "0.31.3")),
+        .package(url: "https://github.com/ml-explore/mlx-swift", "0.31.3" ..< "0.33.0"),
     ],
     targets: [
         .target(
