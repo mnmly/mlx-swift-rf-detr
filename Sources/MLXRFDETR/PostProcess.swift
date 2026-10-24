@@ -304,6 +304,8 @@ public func postProcess(
 /// Mirrors the Python `PostProcess` keypoint path: flattened top-k selection over
 /// `(Q × C)`, per-class keypoint extraction, pixel scaling, `sigmoid(findable)`
 /// confidence, raw Cholesky precision, and optional `trace_alpha` score fusion.
+/// Fused scores are `sigmoid(log(score) − traceAlpha · log(meanTrace))`, so they stay in `[0, 1)`.
+/// Boxes are clamped to the image bounds.
 /// No NMS/threshold is applied (matches the reference), so callers that want those
 /// should filter the returned result.
 ///
@@ -347,21 +349,26 @@ public func postProcessKeypoints(
             flat.append((s, q * C + c))
         }
     }
-    flat.sort { $0.0 > $1.0 }
+    // Deterministic tie rule (matches upstream's stable argsort): descending score,
+    // then ascending flattened query/class index.
+    flat.sort { $0.0 != $1.0 ? $0.0 > $1.0 : $0.1 < $1.1 }
     let k = min(numSelect, flat.count)
     let topk = Array(flat.prefix(k))
     var scores = topk.map { $0.0 }
     let queryIdx = topk.map { $0.1 / C }
     let labels = topk.map { $0.1 % C }
 
-    // Boxes: cxcywh → xyxy, scaled to pixels.
+    // Boxes: cxcywh → xyxy, scaled to pixels and clamped to the image bounds.
     let origH = Float(originalSize.0), origW = Float(originalSize.1)
     var boxes = [[Float]]()
     boxes.reserveCapacity(k)
     for qi in queryIdx {
         let b = qi * 4
         let cx = boxesRaw[b], cy = boxesRaw[b + 1], w = boxesRaw[b + 2], h = boxesRaw[b + 3]
-        boxes.append([(cx - w / 2) * origW, (cy - h / 2) * origH, (cx + w / 2) * origW, (cy + h / 2) * origH])
+        boxes.append([
+            max(0, min((cx - w / 2) * origW, origW)), max(0, min((cy - h / 2) * origH, origH)),
+            max(0, min((cx + w / 2) * origW, origW)), max(0, min((cy + h / 2) * origH, origH)),
+        ])
     }
 
     func logSumExp(_ xs: [Float]) -> Float {
@@ -400,7 +407,9 @@ public func postProcessKeypoints(
                     }
                     let combined = zip(logTraceSigma, logWFind).map { $0 + $1 }
                     let logMeanTrace = logSumExp(combined) - logSumExp(logWFind)
-                    scores[det] *= exp(-traceAlpha * logMeanTrace)
+                    // Fuse in log space and normalize with a sigmoid, kept strictly below 1.
+                    let fused = 1 / (1 + exp(-(log(scores[det]) - traceAlpha * logMeanTrace)))
+                    scores[det] = min(fused, Float(1).nextDown)
                 }
                 // Pixel-space keypoints + raw Cholesky.
                 for kk in 0..<activeCount {

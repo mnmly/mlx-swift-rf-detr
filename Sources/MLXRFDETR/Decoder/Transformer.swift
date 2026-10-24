@@ -96,22 +96,6 @@ public final class Transformer: Module {
         // Classify all positions
         let clsLogits = encOutClassEmbed[groupIdx](output) // (B, HW, numClasses)
 
-        // Predict box refinements
-        let bboxDelta = encOutBBoxEmbed[groupIdx](output) // (B, HW, 4)
-        let proposals = gridProposals.expandedDimensions(axis: 0) // (1, HW, 4)
-
-        let encOutputsCoord: MLXArray
-        if config.bboxReparam {
-            // Parametric: delta_cxcy * proposal_wh + proposal_center (last-axis split)
-            let dParts = bboxDelta.split(parts: 2, axis: -1) // [(B,HW,2), (B,HW,2)]
-            let pParts = proposals.split(parts: 2, axis: -1) // [(1,HW,2), (1,HW,2)]
-            let encCxcy = dParts[0] * pParts[1] + pParts[0]
-            let encWh = exp(dParts[1]) * pParts[1]
-            encOutputsCoord = concatenated([encCxcy, encWh], axis: -1)
-        } else {
-            encOutputsCoord = bboxDelta + inverseSigmoid(proposals)
-        }
-
         // Top-K selection by max class score
         let maxScores = clsLogits.max(axis: -1) // (B, HW)
         var topkIndices = argPartition(-maxScores, kth: nq - 1, axis: -1)
@@ -122,12 +106,28 @@ public final class Transformer: Module {
         let sortIdx = argSort(-topkScores, axis: -1)
         topkIndices = takeAlong(topkIndices, sortIdx, axis: -1)
 
-        // Gather selected features and boxes
+        // Gather selected features and proposals
         let topkExp = topkIndices.expandedDimensions(axis: -1)
         let indicesFeat = broadcast(topkExp, to: [B, nq, output.dim(-1)])
         let selectedFeat = takeAlong(output, indicesFeat, axis: 1)
         let indicesBox = broadcast(topkExp, to: [B, nq, 4])
-        let selectedBoxes = takeAlong(encOutputsCoord, indicesBox, axis: 1)
+        let proposals = broadcast(gridProposals.expandedDimensions(axis: 0), to: [B, gridProposals.dim(0), 4])
+        let selectedProposals = takeAlong(proposals, indicesBox, axis: 1) // (B, nq, 4)
+
+        // The box MLP is token-pointwise, so run it only on the selected rows
+        // (mirrors rf-detr #1334: gather before `enc_out_bbox_embed`, not after).
+        let bboxDelta = encOutBBoxEmbed[groupIdx](selectedFeat) // (B, nq, 4)
+        let selectedBoxes: MLXArray
+        if config.bboxReparam {
+            // Parametric: delta_cxcy * proposal_wh + proposal_center (last-axis split)
+            let dParts = bboxDelta.split(parts: 2, axis: -1) // [(B,nq,2), (B,nq,2)]
+            let pParts = selectedProposals.split(parts: 2, axis: -1)
+            let encCxcy = dParts[0] * pParts[1] + pParts[0]
+            let encWh = exp(dParts[1]) * pParts[1]
+            selectedBoxes = concatenated([encCxcy, encWh], axis: -1)
+        } else {
+            selectedBoxes = bboxDelta + inverseSigmoid(selectedProposals)
+        }
 
         let refpointEmbedTS = stopGradient(selectedBoxes) // (B, nq, 4)
         let memoryTS = selectedFeat

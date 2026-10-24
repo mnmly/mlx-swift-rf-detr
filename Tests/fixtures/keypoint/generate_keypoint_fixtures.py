@@ -2,9 +2,10 @@
 """Generate numerical-parity fixtures for the RF-DETR keypoint-preview model.
 
 Mirrors ../generate_fixtures.py but targets the GroupPose keypoint model and uses the
-current (1.8.1) ``build_model_from_config`` API. Person-only checkpoint => num_classes=1.
+current (1.11.2) ``build_model_from_config`` API. Person-only checkpoint => num_classes=1.
 
-Run from the python rf-detr repo so its package imports:
+Run from the python rf-detr repo so its package imports (``RFDETR_PYTHON_PROJECT``
+overrides the checkout, e.g. a worktree pinned to a release tag):
 
     cd ../../python/rf-detr
     .venv/bin/python <swift-repo>/Tests/fixtures/keypoint/generate_keypoint_fixtures.py
@@ -30,7 +31,7 @@ import numpy as np
 import safetensors.torch as st
 import torch
 
-PYTHON_PROJECT = Path("/Users/mnmly/Development-local/GitHub/python/rf-detr")
+PYTHON_PROJECT = Path(os.environ.get("RFDETR_PYTHON_PROJECT", "/Users/mnmly/Development-local/GitHub/python/rf-detr"))
 FIXTURE_DIR = Path(__file__).resolve().parent
 CKPT_PATH = Path(os.path.expanduser("~/.cache/rfdetr/rf-detr-keypoint-preview-xlarge.pth"))
 DEAD_KEY_PREFIXES = ("keypoint_head.keypoint_proj.",)
@@ -52,7 +53,10 @@ def build_model():
     from rfdetr.config import RFDETRKeypointPreviewConfig
     from rfdetr.models.lwdetr import build_model_from_config
 
-    cfg = RFDETRKeypointPreviewConfig(num_classes=1)
+    # The preview checkpoint uses the legacy background-first schema; since 1.8.2 the config
+    # defaults to active-first [17], and load_state_dict (unlike load_pretrain_weights) does
+    # not auto-align it.
+    cfg = RFDETRKeypointPreviewConfig(num_classes=1, num_keypoints_per_class=[0, 17])
     model = build_model_from_config(cfg)
 
     sd = torch.load(str(CKPT_PATH), map_location="cpu", weights_only=False)["model"]

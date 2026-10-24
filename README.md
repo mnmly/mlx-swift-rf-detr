@@ -45,7 +45,7 @@ The [example app](Examples/RFDETRApp) has a **Download Model…** button that fe
 
 ## Convert weights
 
-The reference PyTorch model lives at [roboflow/rf-detr](https://github.com/roboflow/rf-detr); this port tracks upstream **[`1.8.1`](https://github.com/roboflow/rf-detr/releases/tag/1.8.1)** (detection + segmentation deliverables, plus the `keypoint-preview` GroupPose model). The Swift loader reads a converted directory containing `config.json`, `preprocessor_config.json`, and `model.safetensors` (no PyTorch dependency at inference time).
+The reference PyTorch model lives at [roboflow/rf-detr](https://github.com/roboflow/rf-detr); this port tracks upstream **[`1.11.2`](https://github.com/roboflow/rf-detr/releases/tag/1.11.2)** (detection + segmentation deliverables, plus the `keypoint-preview` GroupPose model). The Swift loader reads a converted directory containing `config.json`, `preprocessor_config.json`, and `model.safetensors` (no PyTorch dependency at inference time).
 
 Available variants: `base`, `small`, `large`, `large-2026`, `seg-small`, `seg-large`, `seg-xlarge`, `seg-2xlarge`, `keypoint-preview`.
 

@@ -44,7 +44,7 @@ from urllib.request import urlretrieve
 CACHE_DIR = Path(os.path.expanduser("~/.cache/rfdetr"))
 
 # variant -> (config class name, download URL, local checkpoint filename).
-# URLs/filenames are the authoritative rf-detr 1.8.1 registry
+# URLs/filenames are the authoritative rf-detr registry (unchanged through 1.11.2)
 # (src/rfdetr/assets/model_weights.py). The local filename is canonical because
 # several upstream URLs share the basename "checkpoint_best_regular.pth".
 VARIANTS = {
