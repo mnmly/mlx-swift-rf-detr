@@ -6,7 +6,7 @@ import Foundation
 import MLX
 
 public enum MLXRFDETR {
-    public static let version = "0.4.0"
+    public static let version = "0.4.1"
 
     /// One-line convenience: load a converted model directory and return a
     /// ready-to-use predictor. Mirrors `RFDETR.load(directory:dtype:)` and
