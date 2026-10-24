@@ -45,6 +45,8 @@ public enum RFDETR {
             numHeads: enc.numHeads,
             numWindows: cfg.numWindows,
             featureIndices: featureIndices,
+            // HF stage indices are exactly the global-attention blocks (see DINOv2Backbone).
+            fullAttentionLayers: isHFIndexed ? Set(cfg.outFeatureIndexes) : nil,
             numRegisterTokens: 0
         )
 

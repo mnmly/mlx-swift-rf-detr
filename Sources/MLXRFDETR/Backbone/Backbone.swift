@@ -194,6 +194,7 @@ public final class DINOv2Backbone: Module {
         numHeads: Int = 6,
         numWindows: Int = 2,
         featureIndices: [Int]? = nil,
+        fullAttentionLayers: Set<Int>? = nil,
         mlpRatio: Float = 4.0,
         numRegisterTokens: Int = 0
     ) {
@@ -205,10 +206,11 @@ public final class DINOv2Backbone: Module {
 
         let fi = featureIndices ?? [2, 5, 8, 11]
         self.featureIndices = fi
-        // Full attention at the same layers where features are extracted.
-        // Mirrors python rf-detr: window_block_indexes excludes out_feature_indexes,
-        // so those layers always run global attention.
-        self.fullAttnLayers = Set(fi)
+        // Python rf-detr runs global attention at block i iff i is in `out_feature_indexes`
+        // (window_block_indexes excludes them), while feature `stage{i}` is the output of
+        // block i-1. Callers that know the stage indices pass them explicitly; the default
+        // keeps the historical "same layers as the features" behaviour.
+        self.fullAttnLayers = fullAttentionLayers ?? Set(fi)
 
         let pe = PatchEmbed(imgSize: imgSize, patchSize: patchSize, inChans: 3, embedDim: embedDim)
         self._patchEmbed = ModuleInfo(wrappedValue: pe, key: "patch_embed")
