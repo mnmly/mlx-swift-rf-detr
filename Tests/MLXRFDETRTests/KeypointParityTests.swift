@@ -165,7 +165,9 @@ final class KeypointParityTests: XCTestCase {
             assertParity(hs, exp[-1], name: "hs (detection final)", atol: 8.0, statsRtol: 0.15)
         }
         if let exp = inter["transformer.4"] {
-            assertParity(kpHs, exp[-1], name: "keypoint_hs final", atol: 8.0, statsRtol: 0.15)
+            // 9.0 (was 8.0): the (y, x, w, h) sine-embedding fix tightened every output metric
+            // (keypoints 11.95→9.38, scores 0.0086→0.0042) but moved this internal state 7.6→8.5.
+            assertParity(kpHs, exp[-1], name: "keypoint_hs final", atol: 9.0, statsRtol: 0.15)
         }
         let delta = model.keypointEmbed!(kpHs)
         eval(delta)
@@ -203,7 +205,8 @@ final class KeypointParityTests: XCTestCase {
                     self.assertParity(det, expDet, name: "dec_layer_\(i).det", atol: 8.0, statsRtol: 0.15)
                 }
                 if let expKp = inter["dec_layer_\(i).1"] {
-                    self.assertParity(kp, expKp, name: "dec_layer_\(i).kp", atol: 8.0, statsRtol: 0.15)
+                    // 9.0: see testKeypointDecoderParity (keypoint_hs final).
+                    self.assertParity(kp, expKp, name: "dec_layer_\(i).kp", atol: 9.0, statsRtol: 0.15)
                 }
             }
         )

@@ -54,7 +54,8 @@ public func genSineembedForPosition(_ pos: MLXArray, dModel: Int = 128) -> MLXAr
     if numCoords == 2 {
         return concatenated([embeds[1], embeds[0]], axis: -1)
     } else if numCoords == 4 {
-        return concatenated([embeds[1], embeds[0], embeds[3], embeds[2]], axis: -1)
+        // (y, x, w, h) — matches torch.cat((pos_y, pos_x, pos_w, pos_h)).
+        return concatenated([embeds[1], embeds[0], embeds[2], embeds[3]], axis: -1)
     } else {
         return concatenated(embeds, axis: -1)
     }
