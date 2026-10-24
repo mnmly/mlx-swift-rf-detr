@@ -77,7 +77,8 @@ public final class RFDETRModel: Module {
     /// Run detection (and optionally segmentation) on a batch of images.
     ///
     /// - Parameter pixelValues: `(B, H, W, 3)` channel-last normalized image(s).
-    /// - Returns: dictionary with keys `"pred_logits"`, `"pred_boxes"`, and optionally `"pred_masks"`.
+    /// - Returns: dictionary with keys `"pred_logits"`, `"pred_boxes"`, `"memory"` (the first
+    ///   projector level, `(B, h, w, hiddenDim)`), and optionally `"pred_masks"`.
     public func callAsFunction(_ pixelValues: MLXArray) -> [String: MLXArray] {
         let imageH = pixelValues.dim(1)
         let imageW = pixelValues.dim(2)
@@ -134,8 +135,11 @@ public final class RFDETRModel: Module {
             predBoxes = sigmoid(bboxEmbed(hs) + inverseSigmoid(refPoints))
         }
 
+        // `memory` is the first projector level (B, h, w, D) — the encoder feature map that
+        // downstream heads (e.g. surya's reading-order model) cross-attend to.
         var result: [String: MLXArray] = [
             "pred_boxes": predBoxes,
+            "memory": memories[0],
         ]
 
         // 5. Optional keypoints (decode → pad → class boost)
